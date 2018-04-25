@@ -11,7 +11,7 @@
 
 // jichi 9/28/2013: Weither use NtThread or RemoteThread
 // RemoteThread works on both Windows 7 or Wine, while NtThread does not work on wine
-#define ITH_ENABLE_THREADMAN    (!IthIsWindows8OrGreater() && !IthIsWine())
+#define ITH_ENABLE_THREADMAN  !IthIsWindows8OrGreater()
 //#define ITH_ENABLE_THREADMAN    true
 
 // Helpers
@@ -36,23 +36,6 @@ static BOOL IthIsWindows8OrGreater() // this function is not exported
 
     // Windows 8/10 = 6.2
     ret = major > 6 || (major == 6 && minor >= 2);
-  }
-  return ret;
-}
-
-BOOL IthIsWine()
-{
-  static BOOL ret = -1; // cached
-  if (ret < 0) {
-    const wchar_t *path;
-    wchar_t buffer[MAX_PATH];
-    if (UINT sz = ::GetSystemDirectoryW(buffer, MAX_PATH)) {
-      path = buffer;
-      ::wcscpy(buffer + sz, L"\\winecfg.exe");
-    } else
-      path = L"C:\\Windows\\System32\\winecfg.exe";
-    //ITH_MSG(path);
-    ret = ::GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES ? TRUE : FALSE;
   }
   return ret;
 }
@@ -639,8 +622,6 @@ BOOL IthInitSystemService()
 
   LPWSTR t = nullptr,   // jichi: path to system32, such as "c:\windows\system32"
          obj = nullptr; // jichi: path to current kernel session, such as "Sessions\\1\\BaseNamedObjects"
-  // jichi 9/22/2013: This would crash wine with access violation exception.
-  if (!IthIsWine()) {
     // jichi 9/22/2013: For ChuSingura46+1 on Windows 7
     //   t = L"C:\\Windows\\system32";
     //   obj = L"\\Sessions\\1\\BaseNamedObjects";
@@ -674,7 +655,6 @@ BOOL IthInitSystemService()
 
     if (base == end)
       return FALSE;
-  }
   //ITH_MSG(t);
   //ITH_MSG(obj);
 
@@ -735,35 +715,12 @@ BOOL IthInitSystemService()
 
   ::page = peb->InitAnsiCodePageData;
 
-  enum { CP932 = 932 };
+  ::page_locale = *(DWORD *)page >> 16;
 
-  // jichi 9/23/2013: Access violation on Wine
-  if (IthIsWine())
-    // One wine, there is no C_932.nls
-    //page_locale = 0x4e4; // 1252, English
-    //page_locale = GetACP(); // This will return 932 when LC_ALL=ja_JP.UTF-8 on wine
-    // Always set locale to CP932 on Wine, since C_932.nls could be missing.
-    ::page_locale = CP932;
-  else
-    ::page_locale = *(DWORD *)page >> 16;
-
-  if (::page_locale == CP932) {
+  if (::page_locale == 932) {
     oa.hRootDirectory = ::root_obj;
     oa.uAttributes |= OBJ_OPENIF;
-  } else { // Unreachable or wine
-//#ifdef ITH_WINE
-//    // jichi 9/22/2013: For ChuSingura46+1 on Windows 7
-//    //t = L"C:\\Windows\\system32";
-//    wchar_t buffer[MAX_PATH];
-//    if (!t) { // jichi 9/22/2013: ITH is one wine
-//      if (UINT sz = ::GetSystemDirectoryW(buffer, MAX_PATH)) {
-//        buffer[sz] = 0;
-//        t = buffer;
-//      } else
-//        t = L"C:\\Windows\\System32"; // jichi 9/29/2013: sth is wrong here
-//    }
-//#endif // ITH_WINE
-
+  } else {
     ::wcscpy(::file_path + 4, t);
     t = ::file_path;
     while(*++t);
@@ -827,40 +784,6 @@ void IthCloseSystemService()
 //For ITH main module, it's ITH folder. For target process it's the target process's current folder.
 BOOL IthCheckFile(LPCWSTR file)
 {
-  //return PathFileExistsW(file);   // jichi: need Shlwapi.lib
-
-  //return (dwAttrib != INVALID_FILE_ATTRIBUTES && !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
-  //return GetFileAttributesW(file) != INVALID_FILE_ATTRIBUTES; // jichi: does not consider the current app's path
-
-  // jichi 9/22/2013: Following code does not work in Wine
-  // See: http://stackoverflow.com/questions/3828835/how-can-we-check-if-a-file-exists-or-not-using-win32-program
-   //WIN32_FIND_DATA FindFileData;
-   //HANDLE handle = FindFirstFileW(file, &FindFileData);
-   //if (handle != INVALID_HANDLE_VALUE) {
-   //  FindClose(handle);
-   //  return TRUE;
-   //}
-   //return FALSE;
-  if (IthIsWine()) {
-    HANDLE hFile = CreateFileW(file, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, 0);
-    if (hFile != INVALID_HANDLE_VALUE) {
-      CloseHandle(hFile);
-      return TRUE;
-    } else if (!wcschr(file, L':')) { // jichi: this is relative path
-      // jichi 9/22/2013: Change current directory to the same as main module path
-      // Otherwise NtFile* would not work for files with relative paths.
-      if (const wchar_t *path = GetMainModulePath()) // path to VNR's python exe
-        if (const wchar_t *base = wcsrchr(path, L'\\')) {
-          size_t dirlen = base - path + 1;
-          if (dirlen + wcslen(file) < MAX_PATH) {
-            wchar_t buf[MAX_PATH];
-            wcsncpy(buf, path, dirlen);
-            wcscpy(buf + dirlen, file);
-            return IthCheckFile(buf);
-          }
-        }
-    }
-  } else { // not wine
     HANDLE hFile;
     IO_STATUS_BLOCK isb;
     UNICODE_STRING us;
@@ -871,7 +794,6 @@ BOOL IthCheckFile(LPCWSTR file)
       NtClose(hFile);
       return TRUE;
     }
-  }
   return FALSE;
   //return IthGetFileInfo(file,file_info);
   //wcscpy(current_dir,file);

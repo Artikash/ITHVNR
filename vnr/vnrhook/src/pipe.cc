@@ -41,22 +41,6 @@ HANDLE hPipe,
 //IdentifyEngineFun IdentifyEngine;
 //InsertDynamicHookFun InsertDynamicHook;
 
-// jichi 9/28/2013: protect pipe on wine
-// Put the definition in this file so that it might be inlined
-void CliUnlockPipe()
-{
-  if (IthIsWine())
-    IthReleaseMutex(::hmMutex);
-}
-
-void CliLockPipe()
-{
-  if (IthIsWine()) {
-    const LONGLONG timeout = -50000000; // in nanoseconds = 5 seconds
-    NtWaitForSingleObject(hmMutex, 0, (PLARGE_INTEGER)&timeout);
-  }
-}
-
 HANDLE IthOpenPipe(LPWSTR name, ACCESS_MASK direction)
 {
   UNICODE_STRING us;
@@ -118,9 +102,7 @@ DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH mai
         hCommand = IthOpenPipe(command, GENERIC_READ);
     }
     //NtClearEvent(hLose);
-    CliLockPipe();
     NtWriteFile(::hPipe, 0, 0, 0, &ios, &u, sizeof(u), 0, 0);
-    CliUnlockPipe();
     for (int i = 0, count = 0; count < ::current_hook; i++)
       if (hookman[i].RecoverHook()) // jichi 9/27/2013: This is the place where built-in hooks like TextOutA are inserted
         count++;
@@ -341,9 +323,7 @@ DWORD NotifyHookInsert(DWORD addr)
     *(DWORD *)(buffer + 8) = addr;
     *(DWORD *)(buffer + 0xc) = 0;
     IO_STATUS_BLOCK ios;
-    CliLockPipe();
     NtWriteFile(hPipe,0,0,0,&ios,buffer,0x10,0,0);
-    CliUnlockPipe();
   }
   return 0;
 }

@@ -132,9 +132,7 @@ void RequestRefreshProfile()
     *(DWORD *)(buffer + 4) = 1;
     *(DWORD *)(buffer + 8) = 0;
     IO_STATUS_BLOCK ios;
-    CliLockPipe();
     NtWriteFile(hPipe, 0, 0, 0, &ios, buffer, HEADER_SIZE, 0, 0);
-    CliUnlockPipe();
   }
 }
 

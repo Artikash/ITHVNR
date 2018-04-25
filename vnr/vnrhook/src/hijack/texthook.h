@@ -91,8 +91,4 @@ DWORD WINAPI CommandPipe(LPVOID lpThreadParameter);
 //extern IdentifyEngineFun IdentifyEngine;
 //extern InsertDynamicHookFun InsertDynamicHook;
 
-// jichi 9/28/2013: Protect pipeline in wine
-void CliLockPipe();
-void CliUnlockPipe();
-
 // EOF
