@@ -6,24 +6,6 @@
 // https://social.msdn.microsoft.com/Forums/vstudio/en-US/4cb11cd3-8ce0-49d7-9dda-d62e9ae0180b/how-to-get-current-module-handle?forum=vcgeneral
 EXTERN_C IMAGE_DOS_HEADER __ImageBase;
 
-//#ifdef _MSC_VER
-//# pragma warning(disable:4018) // C4018: signed/unsigned mismatch
-//#endif // _MSC_VER
-
-namespace { // unnamed
-
-// Replacement of wcscpy_s which is not available on Windows XP's msvcrt
-// http://sakuradite.com/topic/247
-errno_t wcscpy_safe(wchar_t *buffer, size_t bufferSize, const wchar_t *source)
-{
-  size_t len = min(bufferSize - 1, wcslen(source));
-  buffer[len] = 0;
-  if (len)
-    memcpy(buffer, source, len * 2);
-  return 0;
-}
-} // unnamed namespace
-
 NTINSPECT_BEGIN_NAMESPACE
 
 // https://social.msdn.microsoft.com/Forums/vstudio/en-US/4cb11cd3-8ce0-49d7-9dda-d62e9ae0180b/how-to-get-current-module-handle?forum=vcgeneral
@@ -33,7 +15,6 @@ HMODULE getCurrentModuleHandle() { return (HMODULE)&__ImageBase; }
 
 BOOL getProcessName(LPWSTR buffer, int bufferSize)
 {
-  //assert(name);
   PLDR_DATA_TABLE_ENTRY it;
   __asm
   {
@@ -42,9 +23,7 @@ BOOL getProcessName(LPWSTR buffer, int bufferSize)
     mov eax,[eax+0xc]
     mov it,eax
   }
-  // jichi 6/4/2014: _s functions are not supported on Windows XP's msvcrt.dll
-  //return 0 == wcscpy_s(buffer, bufferSize, it->BaseDllName.Buffer);
-  return 0 == wcscpy_safe(buffer, bufferSize, it->BaseDllName.Buffer);
+  return 0 == wcscpy_s(buffer, bufferSize, it->BaseDllName.Buffer);
 }
 
 // See: ITH FillRange

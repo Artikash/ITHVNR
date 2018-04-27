@@ -1,4 +1,4 @@
-// pipe.cc
+// vnrhost/pipe.cc
 // 8/24/2013 jichi
 // Branch IHF/pipe.cpp, rev 93
 // 8/24/2013 TODO: Clean up this file
@@ -9,6 +9,7 @@
 #include "vnrhook/include/const.h"
 #include "ithsys/ithsys.h"
 #include <stdio.h>
+#include "growl.h"
 //#include "CommandQueue.h"
 //#include <QtCore/QDebug>
 
@@ -45,9 +46,6 @@ const BYTE *Filter(const BYTE *str, int len)
 #ifdef ITH_DISABLE_FILTER // jichi 9/28/2013: only for debugging purpose
   return str;
 #endif // ITH_DISABLE_FILTER
-//  if (len && *str == 0x10) // jichi 9/28/2013: garbage on wine, data link escape, or ^P
-//    return nullptr;
-  //enum { limit = 0x19 };
   while (true)
     if (len >= 2) {
       if (*(const WORD *)str <= _filter_limit) { // jichi 10/27/2013: two bytes
@@ -64,8 +62,6 @@ const BYTE *Filter(const BYTE *str, int len)
 }
 } // unnamed namespace
 
-//WCHAR recv_pipe[] = L"\\??\\pipe\\ITH_PIPE";
-//WCHAR command_pipe[] = L"\\??\\pipe\\ITH_COMMAND";
 wchar_t recv_pipe[] = ITH_TEXT_PIPE;
 wchar_t command_pipe[] = ITH_COMMAND_PIPE;
 
@@ -110,6 +106,8 @@ void CreateNewPipe()
     return;
   }
 
+  //hTextPipe = CreateNamedPipeW(ITH_TEXT_PIPE, PIPE_ACCESS_INBOUND, PIPE_READMODE_MESSAGE, PIPE_UNLIMITED_INSTANCES, 0x1000, 0x1000, 1000000, NULL);
+
   RtlInitUnicodeString(&us, command_pipe);
   if (!NT_SUCCESS(NtCreateNamedPipeFile(
       &hCmdPipe,
@@ -136,12 +134,10 @@ void DetachFromProcess(DWORD pid)
 {
   HANDLE hMutex = INVALID_HANDLE_VALUE,
          hEvent = INVALID_HANDLE_VALUE;
-  //try {
   IO_STATUS_BLOCK ios;
   ProcessRecord *pr = man->GetProcessRecord(pid);
   if (!pr)
     return;
-  //IthBreak();
   hEvent = IthCreateEvent(nullptr);
   if (STATUS_PENDING == NtFsControlFile(
       man->GetCmdHandleByPID(pid),
@@ -152,7 +148,6 @@ void DetachFromProcess(DWORD pid)
       0,0,0,0))
     NtWaitForSingleObject(hEvent, 0, 0);
   NtClose(hEvent);
-  //hEvent = INVALID_HANDLE_VALUE;
 
   WCHAR mutex[0x20];
   swprintf(mutex, ITH_DETACH_MUTEX_ L"%d", pid);
@@ -161,31 +156,10 @@ void DetachFromProcess(DWORD pid)
     NtWaitForSingleObject(hMutex, 0, 0);
     NtReleaseMutant(hMutex, 0);
     NtClose(hMutex);
-    //hMutex = INVALID_HANDLE_VALUE;
   }
-
-  //} catch (...) {
-  //  if (hEvent != INVALID_HANDLE_VALUE)
-  //    NtClose(hEvent);
-  //  else if (hMutex != INVALID_HANDLE_VALUE) {
-  //    NtWaitForSingleObject(hMutex, 0, 0);
-  //    NtReleaseMutant(hMutex, 0);
-  //    NtClose(hMutex);
-  //  }
-  //}
-
-  //NtSetEvent(hDetachEvent, 0);
   if (::running)
     NtSetEvent(hPipeExist, 0);
 }
-
-// jichi 9/27/2013: I don't need this
-//void OutputDWORD(DWORD d)
-//{
-//  WCHAR str[0x20];
-//  swprintf(str, L"%.8X", d);
-//  ConsoleOutput(str);
-//}
 
 DWORD WINAPI RecvThread(LPVOID lpThreadParameter)
 {
@@ -207,15 +181,6 @@ DWORD WINAPI RecvThread(LPVOID lpThreadParameter)
   enum { PipeBufferSize = 0x1000 };
   buff = new BYTE[PipeBufferSize];
   ::memset(buff, 0, PipeBufferSize); // jichi 8/27/2013: zero memory, or it will crash wine on start up
-
-  // 10/19/2014 jichi: there are totally three words received
-  // See: hook/rpc/pipe.cc
-  // struct {
-  //   DWORD pid;
-  //   TextHook *man;
-  //   DWORD module;
-  //   //DWORD engine;
-  // } u;
   enum { module_struct_size = 12 };
   NtReadFile(hTextPipe, 0, 0, 0, &ios, buff, module_struct_size, 0, 0);
 
@@ -267,7 +232,8 @@ DWORD WINAPI RecvThread(LPVOID lpThreadParameter)
           lock = 0;
         } break;
       case HOST_NOTIFICATION_TEXT:
-        //qDebug() << ((LPCSTR)(buff + 8));
+		  USES_CONVERSION;
+        man->AddConsoleOutput(A2W((LPCSTR)(buff + 8)));
         break;
       }
     } else {
@@ -316,11 +282,6 @@ DWORD WINAPI RecvThread(LPVOID lpThreadParameter)
   if (::running)
     DOUT("detached");
 
-  //if (::running) {
-  //  swprintf((LPWSTR)buff, FormatDetach, pid);
-  //  ConsoleOutput((LPWSTR)buff);
-  //  NtClose(IthCreateThread(UpdateWindows, 0));
-  //}
   return 0;
 }
 

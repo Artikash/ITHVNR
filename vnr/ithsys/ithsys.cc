@@ -9,37 +9,6 @@
 #include "ithsys/ithsys.h"
 //#include "vnrhook/src/util/growl.h"
 
-// jichi 9/28/2013: Weither use NtThread or RemoteThread
-// RemoteThread works on both Windows 7 or Wine, while NtThread does not work on wine
-#define ITH_ENABLE_THREADMAN  !IthIsWindows8OrGreater()
-//#define ITH_ENABLE_THREADMAN    true
-
-// Helpers
-
-// jichi 2/3/2015: About GetVersion
-// Windows XP SP3: 5.1
-// Windows 7: 6.1, 0x1db10106
-// Windows 8: 6.2, 0x23f00206
-// Windows 10: 6.2, 0x23f00206 (build 9926):
-
-// https://msdn.microsoft.com/en-us/library/windows/desktop/dn424972%28v=vs.85%29.aspx
-// The same as IsWindows8OrGreater, which I don't know if the function is available to lower Windows.
-static BOOL IthIsWindows8OrGreater() // this function is not exported
-{
-  static BOOL ret = -1; // cached
-  if (ret < 0) {
-    // http://msdn.microsoft.com/en-us/library/windows/desktop/ms724439%28v=vs.85%29.aspx
-    DWORD v = ::GetVersion();
-    BYTE major = LOBYTE(LOWORD(v)),
-         minor = HIBYTE(LOWORD(v));
-    //DWORD minor = (DWORD)(HIBYTE(LOWORD(v)));
-
-    // Windows 8/10 = 6.2
-    ret = major > 6 || (major == 6 && minor >= 2);
-  }
-  return ret;
-}
-
 // jichi 10/6/2013
 // See: http://stackoverflow.com/questions/557081/how-do-i-get-the-hmodule-for-the-currently-executing-code
 // See: http://www.codeproject.com/Articles/16598/Get-Your-DLL-s-Path-Name
@@ -54,7 +23,6 @@ HANDLE hHeap; // used in ith/common/memory.h
 #endif // ITH_HAS_HEAP
 
 DWORD current_process_id;
-DWORD debug;
 BYTE launch_time[0x10];
 LPVOID page;
 
@@ -80,9 +48,6 @@ BYTE LeadByteTable[0x100] = {
 };
 
 namespace { // unnamed
-
-WCHAR file_path[MAX_PATH] = L"\\??\\";
-LPWSTR current_dir;
 DWORD page_locale;
 HANDLE root_obj,
        dir_obj,
@@ -598,7 +563,6 @@ BOOL IthInitSystemService()
   PPEB peb;
   //NTSTATUS status;
   DWORD size;
-  ULONG LowFragmentHeap;
   UNICODE_STRING us;
   OBJECT_ATTRIBUTES oa = {sizeof(oa), 0, &us, OBJ_CASE_INSENSITIVE, 0, 0};
   IO_STATUS_BLOCK ios;
@@ -612,8 +576,6 @@ BOOL IthInitSystemService()
     mov peb,eax
     mov current_process_id,ecx
   }
-  debug = peb->BeingDebugged;
-  LowFragmentHeap = 2;
 
 #ifdef ITH_HAS_HEAP
   ::hHeap = RtlCreateHeap(0x1002, 0, 0, 0, 0, 0);
@@ -622,6 +584,7 @@ BOOL IthInitSystemService()
 
   LPWSTR t = nullptr,   // jichi: path to system32, such as "c:\windows\system32"
          obj = nullptr; // jichi: path to current kernel session, such as "Sessions\\1\\BaseNamedObjects"
+		WCHAR file_path[MAX_PATH] = L"\\??\\";
     // jichi 9/22/2013: For ChuSingura46+1 on Windows 7
     //   t = L"C:\\Windows\\system32";
     //   obj = L"\\Sessions\\1\\BaseNamedObjects";
@@ -667,18 +630,17 @@ BOOL IthInitSystemService()
   //WCHAR file_path[MAX_PATH] = L"\\??\\";
   LPCWSTR modulePath = ldr_entry->FullDllName.Buffer;
   if (modulePath[0] == '\\' && modulePath[1] == '\\') { // This is a remote path
-    ::file_path[4] = 'U';
-    ::file_path[5] = 'N';
-    ::file_path[6] = 'C';
-    ::wcscpy(::file_path + 7, modulePath + 1);
+    file_path[4] = 'U';
+    file_path[5] = 'N';
+    file_path[6] = 'C';
+    ::wcscpy(file_path + 7, modulePath + 1);
   } else
-    ::wcscpy(::file_path + 4, modulePath);
+    ::wcscpy(file_path + 4, modulePath);
 
-  current_dir = ::wcsrchr(::file_path, L'\\') + 1;
-  *current_dir = 0;
+  *(::wcsrchr(file_path, L'\\') + 1) = 0;
 
   //GROWL(::file_path);
-  RtlInitUnicodeString(&us, ::file_path);
+  RtlInitUnicodeString(&us, file_path);
 
   if (!NT_SUCCESS(NtOpenFile(&dir_obj,FILE_LIST_DIRECTORY|FILE_TRAVERSE|SYNCHRONIZE,
       &oa,&ios,FILE_SHARE_READ|FILE_SHARE_WRITE,FILE_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT)))
@@ -718,16 +680,16 @@ BOOL IthInitSystemService()
   ::page_locale = *(DWORD *)page >> 16;
 
   if (::page_locale == 932) {
-    oa.hRootDirectory = ::root_obj;
-    oa.uAttributes |= OBJ_OPENIF;
+    //oa.hRootDirectory = ::root_obj;
+    //oa.uAttributes |= OBJ_OPENIF;
   } else {
-    ::wcscpy(::file_path + 4, t);
-    t = ::file_path;
+    ::wcscpy(file_path + 4, t);
+    t = file_path;
     while(*++t);
     if (*(t-1)!=L'\\')
       *t++=L'\\';
     ::wcscpy(t,L"C_932.nls");
-    RtlInitUnicodeString(&us, ::file_path);
+    RtlInitUnicodeString(&us, file_path);
     if (!NT_SUCCESS(NtOpenFile(&codepage_file, FILE_READ_DATA, &oa, &ios,FILE_SHARE_READ,0)))
       return FALSE;
     oa.hRootDirectory = ::root_obj;
@@ -745,20 +707,6 @@ BOOL IthInitSystemService()
         PAGE_READONLY)))
       return FALSE;
   }
-  if (ITH_ENABLE_THREADMAN) {
-    RtlInitUnicodeString(&us, L"VNR_SYS_THREAD");
-    if (!NT_SUCCESS(NtCreateSection(&thread_man_section, SECTION_ALL_ACCESS, &oa, &sec_size,
-        PAGE_EXECUTE_READWRITE, SEC_COMMIT, 0)))
-      return FALSE;
-    size = 0;
-    // http://undocumented.ntinternals.net/UserMode/Undocumented%20Functions/NT%20Objects/Section/NtMapViewOfSection.html
-    thread_man_ = nullptr;
-    if (!NT_SUCCESS(NtMapViewOfSection(thread_man_section, NtCurrentProcess(),
-       (LPVOID *)&thread_man_,
-       0,0,0, &size, ViewUnmap, 0,
-       PAGE_EXECUTE_READWRITE)))
-      return FALSE;
-  }
   return TRUE;
 }
 
@@ -766,13 +714,9 @@ BOOL IthInitSystemService()
 //After destroying the heap, all memory allocated by ITH module is returned to system.
 void IthCloseSystemService()
 {
-  if (::page_locale != 0x3a4) {
+  if (::page_locale != 932) {
     NtUnmapViewOfSection(NtCurrentProcess(), ::page);
     NtClose(::codepage_section);
-  }
-  if (ITH_ENABLE_THREADMAN) {
-    NtUnmapViewOfSection(NtCurrentProcess(), ::thread_man_);
-    NtClose(::thread_man_section);
   }
   NtClose(::root_obj);
 #ifdef ITH_HAS_HEAP
@@ -919,21 +863,6 @@ HANDLE IthCreateFileInDirectory(LPCWSTR name, HANDLE dir, DWORD option, DWORD sh
     hFile : INVALID_HANDLE_VALUE;
 }
 
-//Analogous to IthCreateFile, but with full NT path.
-HANDLE IthCreateFileFullPath(LPCWSTR path, DWORD option, DWORD share, DWORD disposition)
-{
-  UNICODE_STRING us;
-  RtlInitUnicodeString(&us,path);
-  OBJECT_ATTRIBUTES oa = {sizeof(oa), 0, &us, OBJ_CASE_INSENSITIVE, 0, 0};
-  HANDLE hFile;
-  IO_STATUS_BLOCK isb;
-  return NT_SUCCESS(NtCreateFile(&hFile,
-      option|FILE_READ_ATTRIBUTES|SYNCHRONIZE,
-      &oa,&isb,0,0,share,disposition,
-      FILE_SYNCHRONOUS_IO_NONALERT|FILE_NON_DIRECTORY_FILE,0,0)) ?
-    hFile : INVALID_HANDLE_VALUE;
-}
-
 //Create section object for sharing memory between processes.
 //Similar to CreateFileMapping.
 HANDLE IthCreateSection(LPCWSTR name, DWORD size, DWORD right)
@@ -1016,18 +945,15 @@ HANDLE IthOpenMutex(LPCWSTR name)
 BOOL IthReleaseMutex(HANDLE hMutex)
 { return NT_SUCCESS(NtReleaseMutant(hMutex, 0)); }
 
-//Create new thread. 'hProc' must have following right.
-//PROCESS_CREATE_THREAD, PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE.
-HANDLE IthCreateRemoteThread(LPCVOID start_addr, DWORD param, HANDLE hProc)
+HANDLE IthOpenPipe(LPWSTR name, ACCESS_MASK direction)
 {
-  HANDLE hThread;
-    if (hProc == INVALID_HANDLE_VALUE)
-      hProc = GetCurrentProcess();
-    hThread = CreateRemoteThread(hProc, nullptr, 0, (LPTHREAD_START_ROUTINE)start_addr, (LPVOID)param, 0, nullptr);
-    if (!hThread)   // jichi: this function returns nullptr instead of -1
-      hThread = INVALID_HANDLE_VALUE;
-  
-  return hThread;
+	return CreateFile(name, direction, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+}
+
+HANDLE IthCreateRemoteThread(LPCVOID start_addr, DWORD param)
+{
+	HANDLE hThread = CreateRemoteThread(GetCurrentProcess(), nullptr, 0, (LPTHREAD_START_ROUTINE)start_addr, (LPVOID)param, 0, nullptr);	
+	return hThread ? hThread : INVALID_HANDLE_VALUE;
 }
 
 //Query module export table. Return function address if found.

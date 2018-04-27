@@ -505,7 +505,7 @@ int TextHook::InsertHook()
   //ConsoleOutput("vnrcli:InsertHook: enter");
   NtWaitForSingleObject(hmMutex, 0, 0);
   int ok = InsertHookCode();
-  IthReleaseMutex(hmMutex);
+  ReleaseMutex(hmMutex);
   if (hp.type & HOOK_ADDITIONAL) {
     NotifyHookInsert(hp.address);
     //ConsoleOutput(hook_name);
@@ -688,7 +688,7 @@ int TextHook::InitHook(LPVOID addr, DWORD data, DWORD data_ind,
   current_hook++;
   if (current_available >= this)
     for (current_available = this + 1; current_available->Address(); current_available++);
-  IthReleaseMutex(hmMutex);
+  ReleaseMutex(hmMutex);
   return this - hookman;
 }
 
@@ -704,7 +704,7 @@ int TextHook::InitHook(const HookParam &h, LPCSTR name, WORD set_flag)
   current_available = this+1;
   while (current_available->Address())
     current_available++;
-  IthReleaseMutex(hmMutex);
+  ReleaseMutex(hmMutex);
   return 1;
 }
 
@@ -725,7 +725,7 @@ int TextHook::RemoveHook()
   } ITH_EXCEPT {}
   //});
   hp.hook_len = 0;
-  IthReleaseMutex(hmMutex);
+  ReleaseMutex(hmMutex);
   ConsoleOutput("vnrcli:RemoveHook: leave");
   return yes;
 }
@@ -742,7 +742,7 @@ int TextHook::ClearHook()
   //if (current_available>this)
   //  current_available = this;
   current_hook--;
-  IthReleaseMutex(hmMutex);
+  ReleaseMutex(hmMutex);
   return err;
 }
 

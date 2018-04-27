@@ -26,7 +26,7 @@ const wchar_t* Usage = L"Syntax:\r\n\
 'from' and 'to' and hexadecimal thread numbers. The thread number is the first number in the combo box.\r\n\
 \r\n\
 Loader options:\r\n\
-/P[{process_id|Nprocess_name}] - attach to process\r\n\
+/P[{process_id] - attach to process\r\n\
 \r\n\
 Hook options:\r\n\
 /H[X]{A|B|W|S|Q}[N][data_offset[*drdo]][:sub_offset[*drso]]@addr[:module[:{name|#ordinal}]]\r\n\

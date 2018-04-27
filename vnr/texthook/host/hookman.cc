@@ -18,65 +18,13 @@
 #include "profile/Profile.h"
 #include "profile/pugixml.hpp"
 #include "profile/misc.h"
+#include "growl.h"
 
 #define DEBUG "vnrhost/hookman.cc"
 #include "sakurakit/skdebug.h"
 
-namespace { // unnamed
-//enum { MAX_ENTRY = 0x40 };
-
 #define HM_LOCK win_mutex_lock<HookManager::mutex_type> d_locker(hmcs) // Synchronized scope for accessing private data
-// jichi 9/23/2013: wine deficenciy on mapping sections
-// Whe set to false, do not map sections.
-//bool ith_has_section = true;
 
-// jichi 9/28/2013: Remove ConsoleOutput from available hooks
-//LPWSTR HookNameInitTable[]={ L"ConsoleOutput" , HOOK_FUN_NAME_LIST };
-//LPCWSTR HookNameInitTable[] = {HOOK_FUN_NAME_LIST};
-//LPVOID DefaultHookAddr[HOOK_FUN_COUNT];
-
-//BYTE null_buffer[4]={0,0,0,0};
-//BYTE static_small_buffer[0x100];
-//DWORD zeros[4]={0,0,0,0};
-//WCHAR user_entry[0x40];
-
-bool GetProcessPath(HANDLE hProc, __out LPWSTR path)
-{
-  PROCESS_BASIC_INFORMATION info;
-  LDR_DATA_TABLE_ENTRY entry;
-  PEB_LDR_DATA ldr;
-  PEB peb;
-  if (NT_SUCCESS(NtQueryInformationProcess(hProc, ProcessBasicInformation, &info, sizeof(info), 0)))
-  if (info.PebBaseAddress)
-  if (NT_SUCCESS(NtReadVirtualMemory(hProc, info.PebBaseAddress, &peb,sizeof(peb), 0)))
-  if (NT_SUCCESS(NtReadVirtualMemory(hProc, peb.Ldr, &ldr, sizeof(ldr), 0)))
-  if (NT_SUCCESS(NtReadVirtualMemory(hProc, (LPVOID)ldr.InLoadOrderModuleList.Flink,
-    &entry, sizeof(LDR_DATA_TABLE_ENTRY), 0)))
-  if (NT_SUCCESS(NtReadVirtualMemory(hProc, entry.FullDllName.Buffer,
-      path, MAX_PATH * 2, 0)))
-    return true;
-  path = L"";
-  return false;
-}
-
-bool GetProcessPath(DWORD pid, __out LPWSTR path)
-{
-  CLIENT_ID id;
-  OBJECT_ATTRIBUTES oa = {};
-  HANDLE hProc;
-  id.UniqueProcess = pid;
-  id.UniqueThread = 0;
-  oa.uLength = sizeof(oa);
-  if (NT_SUCCESS(NtOpenProcess(&hProc , PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, &oa, &id))) {
-    bool flag = GetProcessPath(hProc, path);
-    NtClose(hProc);
-    return flag;
-  }
-  path = L"";
-  return false;
-}
-
-} // unnamed namespace
 
 HookManager *man; // jichi 9/22/2013: initialized in main
 //BitMap* pid_map;
@@ -93,17 +41,6 @@ DWORD GetHookName(LPSTR str, DWORD pid, DWORD hook_addr, DWORD max)
 
   DWORD len = 0;
   max--; //for '\0' magic marker.
-
-  //if (pid == 0) {
-  //  len = wcslen(HookNameInitTable[0]);
-  //  if (len >= max)
-  //    len = max;
-  //  memcpy(str, HookNameInitTable[0], len << 1);
-  //  str[len] = 0;
-  //  return len;
-  //}
-
-  //::man->LockProcessHookman(pid);
   ProcessRecord *pr = ::man->GetProcessRecord(pid);
   if (!pr)
     return 0;
@@ -122,57 +59,9 @@ DWORD GetHookName(LPSTR str, DWORD pid, DWORD hook_addr, DWORD max)
       break;
     }
 
-  // jichi 9/27/2013: The hook man should be consistent with the one defined in vnrcli
-  //Hook *h = (Hook *)hks;
-  //for (int i = 0; i < MAX_HOOK; i++)
-  //  if (!h[i].hook_name)
-  //    break;
-  //  else {
-  //    const Hook &hi = h[i];
-  //    wchar_t buffer[1000];
-  //    DWORD len = hi.NameLength();
-  //    NtReadVirtualMemory(pr->process_handle, hi.hook_name, buffer, len << 1, &len);
-  //    buffer[len] = 0;
-  //    ITH_MSG(buffer);
-  //  }
-
   NtReleaseMutant(pr->hookman_mutex, 0);
-  //::man->UnlockProcessHookman(pid);
   return len;
 }
-
-// 7/2/2015 jichi: This function is not used and removed
-//int GetHookNameByIndex(LPSTR str, DWORD pid, DWORD index)
-//{
-//  if (!pid)
-//    return 0;
-//
-//  //if (pid == 0) {
-//  //  wcscpy(str, HookNameInitTable[0]);
-//  //  return wcslen(HookNameInitTable[0]);
-//  //}
-//  DWORD len = 0;
-//  //::man->LockProcessHookman(pid);
-//  ProcessRecord *pr = ::man->GetProcessRecord(pid);
-//  if (!pr)
-//    return 0;
-//  //NtWaitForSingleObject(pr->hookman_mutex,0,0); //already locked
-//  Hook *hks = (Hook *)pr->hookman_map;
-//  if (hks[index].Address()) {
-//    NtReadVirtualMemory(pr->process_handle, hks[index].Name(), str, hks[index].NameLength() << 1, &len);
-//    len = hks[index].NameLength();
-//  }
-//  //NtReleaseMutant(pr->hookman_mutex,0);
-//  return len;
-//}
-
-//int GetHookString(LPWSTR str, DWORD pid, DWORD hook_addr, DWORD status)
-//{
-//  LPWSTR begin=str;
-//  str+=swprintf(str,L"%4d:0x%08X:",pid,hook_addr);
-//  str+=GetHookName(str,pid,hook_addr);
-//  return str-begin;
-//}
 
 void ThreadTable::SetThread(DWORD num, TextThread *ptr)
 {
@@ -322,19 +211,8 @@ HookManager::~HookManager()
   //DeleteCriticalSection(&hmcs);
 }
 
-TextThread *HookManager::FindSingle(DWORD pid, DWORD hook, DWORD retn, DWORD split)
-{
-  if (pid == 0)
-    return thread_table->FindThread(0);
-  ThreadParameter tp = {pid, hook, retn, split};
-  TreeNode<ThreadParameter *,DWORD> *node = Search(&tp);
-  return node ? thread_table->FindThread(node->data) : nullptr;
-}
-
 TextThread *HookManager::FindSingle(DWORD number)
 { return (number & 0x80008000) ? nullptr : thread_table->FindThread(number); }
-
-void HookManager::DetachProcess(DWORD pid) {}
 
 void HookManager::SetCurrent(TextThread *it)
 {
@@ -488,8 +366,7 @@ void HookManager::RegisterPipe(HANDLE text, HANDLE cmd, HANDLE thread)
 void HookManager::RegisterProcess(DWORD pid, DWORD hookman, DWORD module)
 {
   HM_LOCK;
-  wchar_t str[0x40],
-          path[MAX_PATH];
+  wchar_t str[0x40];
   //pid_map->Set(pid>>2);
   //ConsoleOutput("vnrhost:RegisterProcess: lock");
   //EnterCriticalSection(&hmcs);
@@ -532,25 +409,8 @@ void HookManager::RegisterProcess(DWORD pid, DWORD hookman, DWORD module)
     return;
   }
 
-  // jichi 9/27/2013: The hook man should be consistent with the one defined in vnrcli
-  //Hook *h = (Hook *)map;
-  //for (int i = 0; i < MAX_HOOK; i++)
-  //  if (!h[i].hook_name)
-  //    break;
-  //  else {
-  //    const Hook &hi = h[i];
-  //    wchar_t buffer[1000];
-  //    DWORD len = hi.NameLength();
-  //    NtReadVirtualMemory(hProc, hi.hook_name, buffer, len << 1, &len);
-  //    buffer[len] = 0;
-  //    ITH_MSG(buffer);
-  //  }
-
   swprintf(str, ITH_HOOKMAN_MUTEX_ L"%d", pid);
   record[register_count - 1].hookman_mutex = IthOpenMutex(str);
-  if (!GetProcessPath(pid, path))
-    path[0] = 0;
-  //swprintf(str,L"%.4d:%s", pid, wcsrchr(path, L'\\') + 1); // jichi 9/25/2013: this is useless?
   current_pid = pid;
   if (attach)
     attach(pid);
@@ -605,30 +465,6 @@ void HookManager::UnRegisterProcess(DWORD pid)
   if (detach)
     detach(pid);
 }
-
-// jichi 9/28/2013: I do not need this
-//void HookManager::SetName(DWORD type)
-//{
-//  WCHAR c;
-//  if (type & PRINT_DWORD)
-//    c = L'H';
-//  else if (type & USING_UNICODE) {
-//    if (type & STRING_LAST_CHAR)
-//      c = L'L';
-//    else if (type & USING_STRING)
-//      c = L'Q';
-//    else
-//      c = L'W';
-//  } else {
-//    if (type & USING_STRING)
-//      c = L'S';
-//    else if (type & BIG_ENDIAN)
-//      c = L'A';
-//    else
-//      c = L'B';
-//  }
-//  //swprintf(user_entry,L"UserHook%c",c);
-//}
 
 void HookManager::AddLink(WORD from, WORD to)
 {
@@ -824,17 +660,6 @@ ProcessRecord *HookManager::GetProcessRecord(DWORD pid)
   //ProcessRecord *pr = i < MAX_REGISTER ? record + i : nullptr;
   //LeaveCriticalSection(&hmcs);
   //return pr;
-}
-
-DWORD HookManager::GetProcessIDByPath(LPCWSTR str)
-{
-  WCHAR path[MAX_PATH];
-  for (int i = 0; i < 8 && record[i].process_handle; i++) {
-    ::GetProcessPath(record[i].process_handle, path);
-    if (_wcsicmp(path,str) == 0)
-      return record[i].pid_register;
-  }
-  return 0;
 }
 
 DWORD HookManager::GetCurrentPID() { return current_pid; }

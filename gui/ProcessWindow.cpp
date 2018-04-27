@@ -77,7 +77,6 @@ void ProcessWindow::AttachProcess()
 	DWORD pid = GetSelectedPID();
 	if (Host_InjectByPID(pid))
 	{
-		Host_HijackProcess(pid);
 		RefreshThreadWithPID(pid, true);
 	}
 }

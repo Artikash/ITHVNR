@@ -7,6 +7,7 @@
 
 #include <windows.h>
 #include <cstdio>
+#include <atlbase.h>
 
 #define GROWL_MSG_A(_msg)     MessageBoxA(nullptr, _msg, "VNR Message", MB_OK)
 #define GROWL_MSG(_msg)       MessageBoxW(nullptr, _msg, L"VNR Message", MB_OK)

@@ -1,4 +1,4 @@
-// pipe.cc
+// vnrhook/pipe.cc
 // 8/24/2013 jichi
 // Branch: ITH_DLL/pipe.cpp, rev 66
 // 8/24/2013 TODO: Clean up this file
@@ -34,30 +34,12 @@ LARGE_INTEGER sleep_time = {-20*10000, -1};
 DWORD engine_type;
 DWORD module_base;
 
-HANDLE hPipe,
-       hCommand,
-       hDetach; //,hLose;
-//InsertHookFun InsertHook;
-//IdentifyEngineFun IdentifyEngine;
-//InsertDynamicHookFun InsertDynamicHook;
-
-HANDLE IthOpenPipe(LPWSTR name, ACCESS_MASK direction)
-{
-  UNICODE_STRING us;
-  RtlInitUnicodeString(&us,name);
-  SECURITY_DESCRIPTOR sd = {1};
-  OBJECT_ATTRIBUTES oa = {sizeof(oa), 0, &us, OBJ_CASE_INSENSITIVE, &sd, 0};
-  HANDLE hFile;
-  IO_STATUS_BLOCK isb;
-  if (NT_SUCCESS(NtCreateFile(&hFile, direction, &oa, &isb, 0, 0, FILE_SHARE_READ, FILE_OPEN, 0, 0, 0)))
-    return hFile;
-  else
-    return INVALID_HANDLE_VALUE;
-}
+HANDLE hPipe, //pipe
+       hCommand, //pipe
+       hDetach; //mutex
 
 DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH main module status.
 {
-  CC_UNUSED(lpThreadParameter);
   // jichi 7/2/2015:This must be consistent with the struct declared in vnrhost/pipe.cc
   struct {
     DWORD pid;
@@ -66,17 +48,8 @@ DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH mai
     //DWORD engine;
   } u;
 
-  //swprintf(engine_event,L"ITH_ENGINE_%d",current_process_id);
   swprintf(::detach_mutex, ITH_DETACH_MUTEX_ L"%d", current_process_id);
-  //swprintf(lose_event,L"ITH_LOSEPIPE_%d",current_process_id);
-  //hEngine=IthCreateEvent(engine_event);
-  //NtWaitForSingleObject(hEngine,0,0);
-  //NtClose(hEngine);
 
-  //while (!engine_registered)
-  //  NtDelayExecution(0, &wait_time);
-
-  //LoadEngine(L"ITH_Engine.dll");
   u.module = module_base;
   u.pid = current_process_id;
   u.man = hookman;
@@ -131,7 +104,7 @@ DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH mai
       //NtWriteFile(::hPipe, 0, 0, 0, &ios, man, 4, 0, 0);
       NtWriteFile(::hPipe, 0, 0, 0, &ios, hookman, 4, 0, 0);
       //CliUnlockPipe();
-      IthReleaseMutex(::hDetach);
+      ReleaseMutex(::hDetach);
     }
     NtClose(::hDetach);
     NtClose(::hPipe);
@@ -201,27 +174,6 @@ DWORD WINAPI CommandPipe(LPVOID lpThreadParameter)
             IthSetEvent(hRemoved);
             NtClose(hRemoved);
           } break;
-#if 0 // Temporarily disabled as these operations are not used by VNR
-        case HOST_COMMAND_MODIFY_HOOK:
-          {
-            DWORD rm_addr = *(DWORD *)(buff + 4);
-            HANDLE hModify = IthOpenEvent(ITH_MODIFYHOOK_EVENT);
-            TextHook *in = hookman;
-            for (int i = 0; i < current_hook; in++) {
-              if (in->Address())
-                i++;
-              if (in->Address() == rm_addr)
-                break;
-            }
-            if (in->Address())
-              in->ModifyHook(*(HookParam *)(buff + 4));
-            IthSetEvent(hModify);
-            NtClose(hModify);
-          } break;
-        case HOST_COMMAND_HIJACK_PROCESS:
-          Engine::hijack();
-          break;
-#endif // 0
         case HOST_COMMAND_DETACH:
           ::running = false;
           ::live = false;
@@ -255,65 +207,7 @@ void ConsoleOutput(LPCSTR text)
   if (data != buf)
     delete[] data;
 }
-  //if (str) {
-  //  int t, len, sum;
-  //  BYTE buffer[0x80];
-  //  BYTE *buff;
-  //  len = wcslen(str) << 1;
-  //  t = swprintf((LPWSTR)(buffer + 8),L"%d: ",current_process_id) << 1;
-  //  sum = len + t + 8;
-  //  if (sum > 0x80) {
-  //    buff = new BYTE[sum];
-  //    memset(buff, 0, sum); // jichi 9/25/2013: zero memory
-  //    memcpy(buff + 8, buffer + 8, t);
-  //  }
-  //  else
-  //    buff = buffer;
-  //  *(DWORD *)buff = HOST_NOTIFICATION; //cmd
-  //  *(DWORD *)(buff + 4) = HOST_NOTIFICATION_TEXT; //console
-  //  memcpy(buff + t + 8, str, len);
-  //  IO_STATUS_BLOCK ios;
-  //  NtWriteFile(hPipe,0,0,0,&ios,buff,sum,0,0);
-  //  if (buff != buffer)
-  //    delete[] buff;
-  //  return len;
-  //}
 
-//DWORD IOutputDWORD(DWORD d)
-//{
-//  WCHAR str[0x10];
-//  swprintf(str,L"%.8X",d);
-//  ConsoleOutput(str);
-//  return 0;
-//}
-//DWORD IOutputRegister(DWORD *base)
-//{
-//  WCHAR str[0x40];
-//  swprintf(str,L"EAX:%.8X",base[0]);
-//  ConsoleOutput(str);
-//  swprintf(str,L"ECX:%.8X",base[-1]);
-//  ConsoleOutput(str);
-//  swprintf(str,L"EDX:%.8X",base[-2]);
-//  ConsoleOutput(str);
-//  swprintf(str,L"EBX:%.8X",base[-3]);
-//  ConsoleOutput(str);
-//  swprintf(str,L"ESP:%.8X",base[-4]);
-//  ConsoleOutput(str);
-//  swprintf(str,L"EBP:%.8X",base[-5]);
-//  ConsoleOutput(str);
-//  swprintf(str,L"ESI:%.8X",base[-6]);
-//  ConsoleOutput(str);
-//  swprintf(str,L"EDI:%.8X",base[-7]);
-//  ConsoleOutput(str);
-//  return 0;
-//}
-//DWORD IRegisterEngineModule(DWORD idEngine, DWORD dnHook)
-//{
-//  ::IdentifyEngine = (IdentifyEngineFun)idEngine;
-//  ::InsertDynamicHook = (InsertDynamicHookFun)dnHook;
-//  ::engine_registered = true;
-//  return 0;
-//}
 DWORD NotifyHookInsert(DWORD addr)
 {
   if (live) {

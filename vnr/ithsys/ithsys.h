@@ -50,8 +50,9 @@ void IthResetEvent(HANDLE hEvent);
 HANDLE IthCreateMutex(LPCWSTR name, BOOL InitialOwner, DWORD *exist=0);
 HANDLE IthOpenMutex(LPCWSTR name);
 BOOL IthReleaseMutex(HANDLE hMutex);
+HANDLE IthOpenPipe(LPWSTR name, ACCESS_MASK direction);
 //DWORD IthWaitForSingleObject(HANDLE hObject, DWORD dwTime);
-HANDLE IthCreateRemoteThread(LPCVOID start_addr, DWORD param, HANDLE hProc=(HANDLE)-1);
+HANDLE IthCreateRemoteThread(LPCVOID start_addr, DWORD param);
 DWORD GetExportAddress(DWORD hModule,DWORD hash);
 void IthSleep(int time); // jichi 9/28/2013: in ms
 void IthSystemTimeToLocalTime(LARGE_INTEGER *ptime);
@@ -64,7 +65,6 @@ extern HANDLE hHeap; // used in ith/common/memory.h
 #endif // ITH_HAS_HEAP
 
 extern DWORD current_process_id;
-extern DWORD debug;
 extern BYTE LeadByteTable[];
 extern LPVOID page;
 extern BYTE launch_time[];
@@ -86,9 +86,6 @@ inline DWORD GetHash(LPCWSTR str)
     hash = ((hash>>7) | (hash<<25)) + *str++;
   return hash;
 }
-
-inline void IthBreak()
-{ if (debug) __debugbreak(); }
 
 inline LPCWSTR GetMainModulePath()
 {
