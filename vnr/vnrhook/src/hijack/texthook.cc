@@ -17,6 +17,7 @@
 #include "ithsys/ithsys.h"
 #include "winkey/winkey.h"
 #include "disasm/disasm.h"
+#include "growl.h"
 //#include "winseh/winseh.h"
 
 //#define ConsoleOutput(...)   (void)0    // jichi 9/17/2013: I don't need this ><
@@ -329,7 +330,7 @@ DWORD TextHook::Send(DWORD dwDataBase, DWORD dwRetn)
   // jich: 6/17/2015: do not send when ctrl/shift are controlled
   //if (WinKey::isKeyControlPressed() || WinKey::isKeyShiftPressed() && !WinKey::isKeyReturnPressed())
   //  return 0;
-
+  
   DWORD ret = 0;
   //char b[0x100];
   //::wcstombs(b, hook_name, 0x100);
@@ -363,12 +364,7 @@ DWORD TextHook::UnsafeSend(DWORD dwDataBase, DWORD dwRetn)
 
   dwAddr = hp.address;
 
-  /** jichi 12/24/2014
-   *  @param  addr  function address
-   *  @param  frame  real address of the function, supposed to be the same as addr
-   *  @param  stack  address of current stack - 4
-   *  @return  If success, which is reverted
-   */
+  
   if (::trigger)
     ::trigger = Engine::InsertDynamicHook((LPVOID)dwAddr, *(DWORD *)(dwDataBase - 0x1c), *(DWORD *)(dwDataBase-0x18));
   // jichi 10/21/2014: Directly invoke engine functions.
@@ -487,10 +483,7 @@ DWORD TextHook::UnsafeSend(DWORD dwDataBase, DWORD dwRetn)
     if (dwCount) {
       IO_STATUS_BLOCK ios = {};
       //CliLockPipe();
-      if (STATUS_PENDING == NtWriteFile(::hPipe, 0, 0, 0, &ios, pbData, dwCount + HEADER_SIZE, 0, 0)) {
-        NtWaitForSingleObject(::hPipe, 0, 0);
-        NtFlushBuffersFile(::hPipe, &ios);
-      }
+	  NtWriteFile(::hPipe, 0, 0, 0, &ios, pbData, dwCount + HEADER_SIZE, 0, 0);
       //CliUnlockPipe();
     }
     if (pbData != pbSmallBuff)

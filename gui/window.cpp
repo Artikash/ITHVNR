@@ -128,10 +128,6 @@ BOOL CALLBACK OptionDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			GetWindowText(GetDlgItem(hDlg, IDC_EDIT4), str, 0x80);
 			DWORD sd = std::stoul(str);
 			insert_delay = sd > 200 ? sd : 200;
-			if (IsDlgButtonChecked(hDlg, IDC_CHECK6))
-			{
-				man->ResetRepeatStatus();
-			}
 			auto_inject = IsDlgButtonChecked(hDlg, IDC_CHECK1);
 			auto_insert = IsDlgButtonChecked(hDlg, IDC_CHECK2);
 			clipboard_flag = IsDlgButtonChecked(hDlg, IDC_CHECK3);
@@ -364,16 +360,6 @@ void ClickButton(HWND hWnd, HWND h)
 			SaveProcessProfile(pid);
 		}
 		pfman->SaveProfiles();
-	}
-	else if (h == hwndRemoveLink)
-	{
-		WCHAR str[32];
-		if (GetWindowText(hwndCombo, str, 32))
-		{
-			DWORD from = std::stoul(str, NULL, 16);
-			if (from != 0)
-				Host_UnLink(from);
-		}
 	}
 	else if (h == hwndRemoveHook)
 	{
@@ -609,7 +595,6 @@ DWORD AddRemoveLink(TextThread* thread)
 }
 
 bool IsUnicodeHook(const ProcessRecord& pr, DWORD hook);
-void AddLinksToHookManager(const Profile* pf, size_t thread_index, const TextThread* thread);
 
 DWORD ThreadCreate(TextThread* thread)
 {
@@ -631,7 +616,6 @@ DWORD ThreadCreate(TextThread* thread)
 	{
 		(*thread_profile)->HookManagerIndex() = thread->Number();
 		auto thread_index = thread_profile - pf->Threads().begin();
-		AddLinksToHookManager(pf, thread_index, thread);
 		if (pf->IsThreadSelected(thread_profile))
 			ThreadReset(thread);
 	}
@@ -653,25 +637,6 @@ bool IsUnicodeHook(const ProcessRecord& pr, DWORD hook)
 	}
 	ReleaseMutex(pr.hookman_mutex);
 	return res;
-}
-
-void AddLinksToHookManager(const Profile* pf, size_t thread_index, const TextThread* thread)
-{
-	for (auto lp = pf->Links().begin(); lp != pf->Links().end(); ++lp)
-	{
-		if ((*lp)->FromIndex() == thread_index)
-		{
-			WORD to_index = pf->Threads()[(*lp)->ToIndex()]->HookManagerIndex();
-			if (to_index != 0)
-				man->AddLink(thread->Number(), to_index);
-		}
-		if ((*lp)->ToIndex() == thread_index)
-		{
-			WORD from_index = pf->Threads()[(*lp)->FromIndex()]->HookManagerIndex();
-			if (from_index != 0)
-				man->AddLink(from_index, thread->Number());
-		}
-	}
 }
 
 DWORD ThreadRemove(TextThread* thread)

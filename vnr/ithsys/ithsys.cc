@@ -99,182 +99,11 @@ struct _ThreadView {
   DWORD proc_record[1];
 };
 
-class : private _ThreadView { // ThreadStartManager
-
-  enum {
-    ADDR0 = 0xD
-    , ADDR1 = 0x48
-    , ADDR2 = 0x60
-    , ADDR3 = 0x9D
-  };
-
-public:
-  LPVOID GetProcAddr(HANDLE hProc)
-  {
-    AcquireLock();
-    DWORD pid,addr,len;
-    if (hProc == NtCurrentProcess())
-      pid = ::current_process_id;
-    else {
-      PROCESS_BASIC_INFORMATION info;
-      NtQueryInformationProcess(hProc, ProcessBasicInformation, &info, sizeof(info), &len);
-      pid=info.uUniqueProcessId;
-    }
-    pid >>= 2;
-    for (UINT_PTR i = 0; i < count; i++)
-      if (pid == (proc_record[i] & 0xfff)) {
-        addr = proc_record[i] & ~0xfff;
-        ReleaseLock();
-        return (LPVOID)addr;
-      }
-    len = 0x1000;
-    NtAllocateVirtualMemory(hProc, (PVOID *)(proc_record + count), 0, &len,
-        MEM_COMMIT,PAGE_EXECUTE_READWRITE);
-    DWORD base = proc_record[count];
-    proc_record[count] |= pid;
-    union {
-      LPVOID buffer;
-      DWORD b;
-    };
-    b = base;
-    LPVOID fun_table[3];
-    *(DWORD *)(normal_routine + ADDR0) += base;
-    NtWriteVirtualMemory(hProc, buffer, normal_routine, 0x14, 0);
-    *(DWORD *)(normal_routine + ADDR0) -= base;
-    b += 0x14;
-    fun_table[0] = NtTerminateThread;
-    fun_table[1] = NtQueryVirtualMemory;
-    fun_table[2] = MessageBoxW;
-    NtWriteVirtualMemory(hProc, buffer, fun_table, 0xC, 0);
-    b += 0xc;
-    *(DWORD *)(except_routine + ADDR1) += base;
-    *(DWORD *)(except_routine + ADDR2) += base;
-    *(DWORD *)(except_routine + ADDR3) += base;
-    NtWriteVirtualMemory(hProc, buffer, except_routine, 0xE0, 0);
-    *(DWORD *)(except_routine + ADDR1) -= base;
-    *(DWORD *)(except_routine + ADDR2) -= base;
-    *(DWORD *)(except_routine + ADDR3) -= base;
-    count++;
-    ReleaseLock();
-    return (LPVOID)base;
-  }
-  void ReleaseProcessMemory(HANDLE hProc)
-  {
-    DWORD pid,addr,len;
-    AcquireLock();
-    if (hProc==NtCurrentProcess())
-      pid = ::current_process_id;
-    else {
-      PROCESS_BASIC_INFORMATION info;
-      NtQueryInformationProcess(hProc,ProcessBasicInformation,&info,sizeof(info),&len);
-      pid = info.uUniqueProcessId;
-    }
-    pid >>= 2;
-    //NtWaitForSingleObject(thread_man_mutex,0,0);
-    for (UINT_PTR i = 0; i < count; i++) {
-      if ((proc_record[i]&0xfff) == pid) {
-        addr = proc_record[i] & ~0xfff;
-        DWORD size=0x1000;
-        NtFreeVirtualMemory(hProc, (PVOID *)&addr, &size, MEM_RELEASE);
-        count--;
-        for (UINT_PTR j = i; j < count; j++)
-          proc_record[j] = proc_record[j + 1];
-        proc_record[count] = 0;
-        ReleaseLock();
-        //NtReleaseMutant(thread_man_mutex,0);
-        return;
-      }
-    }
-    ReleaseLock();
-    //NtReleaseMutant(thread_man_mutex,0);
-  }
-  void CheckProcessMemory()
-  {
-    UINT_PTR i, j, flag, addr;
-    DWORD len;
-    CLIENT_ID id;
-    OBJECT_ATTRIBUTES oa = {};
-    HANDLE hProc;
-    BYTE buffer[8];
-    AcquireLock();
-    id.UniqueThread = 0;
-    oa.uLength = sizeof(oa);
-    for (i = 0; i < count ; i++) {
-      id.UniqueProcess = (proc_record[i]&0xfff)<<2;
-      addr = proc_record[i] & ~0xfff;
-      flag = 0;
-      if (NT_SUCCESS(NtOpenProcess(&hProc, PROCESS_VM_OPERATION|PROCESS_VM_READ, &oa, &id))) {
-        if (NT_SUCCESS(NtReadVirtualMemory(hProc, (PVOID)addr, buffer, 8, &len)))
-          if (::memcmp(buffer, normal_routine, 4) == 0)
-            flag = 1;
-        NtClose(hProc);
-      }
-      if (flag == 0) {
-        for (j = i; j < count; j++)
-          proc_record[j] = proc_record[j + 1];
-        count--;
-        i--;
-      }
-    }
-    ReleaseLock();
-  }
-  void AcquireLock()
-  {
-    LONG *p = (LONG *)&mutex;
-    while (_interlockedbittestandset(p,0))
-      YieldProcessor();
-  }
-  void ReleaseLock()
-  {
-    LONG *p = (LONG*)&mutex;
-    _interlockedbittestandreset(p, 0);
-  }
-} *thread_man_ = nullptr; // global singleton
-
 } // unnamed namespace
 
-// - API functions -
+  // - API functions -
 
 extern "C" {
-
-void FreeThreadStart(HANDLE hProc)
-{
-  if (thread_man_)
-    ::thread_man_->ReleaseProcessMemory(hProc);
-}
-
-void CheckThreadStart()
-{
-  if (thread_man_)
-    ::thread_man_->CheckProcessMemory();
-
-    // jichi 2/2/2015: This function is only used to wait for injected threads vnrhost.
-    // Sleep for 100 ms to wait for remote thread to start
-    //IthSleep(100);
-    //IthCoolDown();
-}
-
-void IthSleep(int time)
-{
-  __asm
-  {
-    mov eax,0x2710 // jichi = 10000
-    mov ecx,time
-    mul ecx
-    neg eax
-    adc edx,0
-    neg edx
-    push edx
-    push eax
-    push esp
-    push 0
-    call dword ptr [NtDelayExecution]
-    add esp,8
-  }
-}
-
-void IthSystemTimeToLocalTime(LARGE_INTEGER *time)
-{ time->QuadPart -= GetTimeBias()->QuadPart; }
 
 int FillRange(LPCWSTR name, DWORD *lower, DWORD *upper)
 {
@@ -698,7 +527,7 @@ BOOL IthInitSystemService()
     if (!NT_SUCCESS(NtCreateSection(&codepage_section, SECTION_MAP_READ,
         &oa,0, PAGE_READONLY, SEC_COMMIT, codepage_file)))
       return FALSE;
-    NtClose(codepage_file);
+    CloseHandle(codepage_file);
     size = 0;
     ::page = nullptr;
     if (!NT_SUCCESS(NtMapViewOfSection(::codepage_section, NtCurrentProcess(),
@@ -716,9 +545,9 @@ void IthCloseSystemService()
 {
   if (::page_locale != 932) {
     NtUnmapViewOfSection(NtCurrentProcess(), ::page);
-    NtClose(::codepage_section);
+    CloseHandle(::codepage_section);
   }
-  NtClose(::root_obj);
+  CloseHandle(::root_obj);
 #ifdef ITH_HAS_HEAP
   RtlDestroyHeap(::hHeap);
 #endif // ITH_HAS_HEAP
@@ -735,7 +564,7 @@ BOOL IthCheckFile(LPCWSTR file)
     OBJECT_ATTRIBUTES oa = { sizeof(oa), dir_obj, &us, 0, 0, 0};
     // jichi 9/22/2013: Following code does not work in Wine
     if (NT_SUCCESS(NtCreateFile(&hFile, FILE_READ_DATA, &oa, &isb, 0, 0, FILE_SHARE_READ, FILE_OPEN, 0, 0, 0))) {
-      NtClose(hFile);
+      CloseHandle(hFile);
       return TRUE;
     }
   return FALSE;
@@ -769,7 +598,7 @@ BOOL IthFindFile(LPCWSTR file)
     else
       RtlInitUnicodeString(&us, file);
     status = NtQueryDirectoryFile(h,0,0,0,&ios,info,0x400,FileBothDirectoryInformation,TRUE,&us,TRUE);
-    NtClose(h);
+    CloseHandle(h);
     return NT_SUCCESS(status);
   }
   return FALSE;
@@ -797,7 +626,7 @@ BOOL IthGetFileInfo(LPCWSTR file, LPVOID info, DWORD size)
     RtlInitUnicodeString(&us,file);
     status = NtQueryDirectoryFile(h,0,0,0,&ios,info,size,FileBothDirectoryInformation,0,&us,0);
     status = NT_SUCCESS(status);
-    NtClose(h);
+    CloseHandle(h);
   } else
     status = FALSE;
   return status;
@@ -812,7 +641,7 @@ BOOL IthCheckFileFullPath(LPCWSTR file)
   HANDLE hFile;
   IO_STATUS_BLOCK isb;
   if (NT_SUCCESS(NtCreateFile(&hFile,FILE_READ_DATA,&oa,&isb,0,0,FILE_SHARE_READ,FILE_OPEN,0,0,0))) {
-    NtClose(hFile);
+    CloseHandle(hFile);
     return TRUE;
   } else
     return FALSE;
@@ -922,15 +751,11 @@ HANDLE IthOpenEvent(LPCWSTR name)
      hEvent : INVALID_HANDLE_VALUE;
 }
 
-void IthSetEvent(HANDLE hEvent) { NtSetEvent(hEvent, 0); }
-
-void IthResetEvent(HANDLE hEvent) { NtClearEvent(hEvent); }
-
 //Create mutex object. Similar to CreateMutex.
 //If 'exist' is not null, it will be written 1 if mutex exist.
 HANDLE IthCreateMutex(LPCWSTR name, BOOL InitialOwner, DWORD *exist)
 {
-  HANDLE ret = ::CreateMutex(nullptr, InitialOwner, name);
+  HANDLE ret = ::CreateMutexW(nullptr, InitialOwner, name);
   if (exist)
     *exist = ret == INVALID_HANDLE_VALUE || ::GetLastError() == ERROR_ALREADY_EXISTS;
   return ret;
@@ -939,15 +764,12 @@ HANDLE IthCreateMutex(LPCWSTR name, BOOL InitialOwner, DWORD *exist)
 
 HANDLE IthOpenMutex(LPCWSTR name)
 {
-  return ::OpenMutex(MUTEX_ALL_ACCESS, FALSE, name);
+  return ::OpenMutexW(MUTEX_ALL_ACCESS, FALSE, name);
 }
-
-BOOL IthReleaseMutex(HANDLE hMutex)
-{ return NT_SUCCESS(NtReleaseMutant(hMutex, 0)); }
 
 HANDLE IthOpenPipe(LPWSTR name, ACCESS_MASK direction)
 {
-	return CreateFile(name, direction, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	return CreateFileW(name, direction, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 }
 
 HANDLE IthCreateRemoteThread(LPCVOID start_addr, DWORD param)

@@ -31,28 +31,11 @@ DWORD ProcessCommand(const std::wstring& cmd, DWORD pid)
 	using std::wregex;
 	using std::regex_match;
 	std::match_results<std::wstring::const_iterator> m;
-
-	if (regex_match(cmd, m, wregex(L"/p(\\d+)", wregex::icase)))
-	{
-		pid = std::stoul(m[1].str());
-		Host_InjectByPID(pid);
-	}
-	else if (regex_match(cmd, m, wregex(L"/h(.+)", wregex::icase)))
+	if (regex_match(cmd, m, wregex(L"/h(.+)", wregex::icase)))
 	{
 		HookParam hp = {};
 		if (Parse(m[1].str(), hp))
 			Host_InsertHook(pid, &hp);
-	}
-	else if (regex_match(cmd, m, wregex(L":l([[:xdigit:]]+)-([[:xdigit:]]+)", wregex::icase)))
-	{
-		DWORD from = std::stoul(m[1].str(), NULL, 16);
-		DWORD to = std::stoul(m[2].str(), NULL, 16);
-		Host_AddLink(from, to);
-	}
-	else if (regex_match(cmd, m, wregex(L":u([[:xdigit:]]+)", wregex::icase)))
-	{
-		DWORD from = std::stoul(m[1].str(), NULL, 16);
-		Host_UnLink(from);
 	}
 	else if (regex_match(cmd, m, wregex(L":(?:h|help)", wregex::icase)))
 	{

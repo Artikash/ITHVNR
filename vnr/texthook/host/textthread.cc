@@ -32,16 +32,6 @@ DWORD GetHookName(LPSTR str, DWORD pid, DWORD hook_addr,DWORD max);
 
 extern Settings *settings;
 extern HWND hMainWnd;
-void CALLBACK NewLineBuff(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime)
-{
-  KillTimer(hwnd,idEvent);
-  TextThread *id=(TextThread*)idEvent;
-
-  if (id->Status()&CURRENT_SELECT)
-    //texts->SetLine();
-    id->CopyLastToClipboard();
-  id->SetNewLineFlag();
-}
 
 TextThread::TextThread(DWORD id, DWORD hook, DWORD retn, DWORD spl, WORD num) :
   //,tp
@@ -103,161 +93,11 @@ void TextThread::Reset()
   //}
   MyVector::Reset();
 }
-void TextThread::RemoveSingleRepeatAuto(const BYTE *con, int &len)
-{
-#ifdef ITH_DISABLE_REPEAT // jichi 9/28/2013: only for debugging purpose
-  return;
-#endif // ITH_DISABLE_REPEAT
-  WORD *text = (WORD *)con;
-  if (len <= 2) {
-    if (repeat_single) {
-      if (repeat_single_count<repeat_single&&
-          last == *text) {
-        len = 0;
-        repeat_single_count++;
-      } else {
-        last = *text;
-        repeat_single_count=0;
-      }
-    }
-    if (status & REPEAT_NUMBER_DECIDED) {
-      if (++repeat_detect_count>MIN_REDETECT) {
-        repeat_detect_count = 0;
-        status ^= REPEAT_NUMBER_DECIDED;
-        last = 0;
-        RepeatCountNode *t = head,
-                        *tt;
-        while (t) {
-          tt = t;
-          t = tt->next;
-          delete tt;
-        }
-        head = new RepeatCountNode;
-        ::memset(head, 0, sizeof(RepeatCountNode)); // jichi 9/21/2013: zero memory
-      }
-    } else {
-      repeat_detect_count++;
-      if (last == *text)
-        repeat_single_current++;
-      else {
-        if (last == 0) {
-          last = *text;
-          return;
-        }
-        if (repeat_single_current == 0) {
-          status |= REPEAT_NUMBER_DECIDED;
-          repeat_single = 0;
-          return;
-        }
-        last = *text;
-        RepeatCountNode *it = head;
-        if (repeat_detect_count > MIN_DETECT) {
-          while (it = it->next)
-            if (it->count>head->count) {
-              head->count=it->count;
-              head->repeat=it->repeat;
-            }
-          repeat_single = head->repeat;
-          repeat_single_current = 0;
-          repeat_detect_count = 0;
-          status |= REPEAT_NUMBER_DECIDED;
-          DWORD repeat_sc = repeat_single*4;
-          if (repeat_sc > MIN_DETECT) {
-            MIN_DETECT <<= 1;
-            MIN_REDETECT <<= 1;
-          }
-        } else {
-          bool flag=true;
-          while (it) {
-            if (it->repeat == repeat_single_current) {
-              it->count++;
-              flag = false;
-              break;
-            }
-            it=it->next;
-          }
-          if (flag) {
-            RepeatCountNode *n = new RepeatCountNode;
-            n->count = 1;
-            n->repeat = repeat_single_current;
-            n->next = head->next;
-            head->next = n;
-          }
-          repeat_single_current = 0;
-        } //Decide repeat_single
-      } //Check Repeat
-    } //repeat_single decided?
-  } //len
-  else {
-    status |= REPEAT_NUMBER_DECIDED;
-    repeat_single = 0;
-  }
-}
 
-void TextThread::ResetRepeatStatus()
-{
-  last=0;
-  repeat_single=0;
-  repeat_single_current=0;
-  repeat_single_count=0;
-  repeat_detect_count=0;
-  RepeatCountNode *t = head->next,
-                  *tt;
-  while (t) {
-    tt = t;
-    t = tt->next;
-    delete tt;
-  }
-  //head=new RepeatCountNode;
-  head->count = head->repeat = 0;
-  status &= ~REPEAT_NUMBER_DECIDED;
-}
-void TextThread::AddLineBreak()
-{
-  if (sentence_length == 0) return;
-  if (status&BUFF_NEWLINE)
-  {
-    prev_sentence=last_sentence;
-    sentence_length=0;
-    if (status & USING_UNICODE)
-      AddToStore((BYTE *)L"\r\n\r\n", 8);
-    else
-      AddToStore((BYTE *)"\r\n\r\n", 4);
-    if (output)
-      output(this, 0, 8, TRUE, app_data, false); // jichi 10/27/2013: space is false
-    last_sentence = used;
-    status &= ~BUFF_NEWLINE;
-  }
-}
-void TextThread::AddText(const BYTE *con, int len, bool new_line, bool space)
+void TextThread::AddText(const BYTE *con, int len, bool space)
 {
   if (!con || (len <= 0 && !space))
     return;
-  if (len && !new_line) {
-    // jichi 9/1/2013: manual repetition count removed
-    //if (setman->GetValue(SETTING_REPEAT_COUNT)) {
-    //  status|=REPEAT_NUMBER_DECIDED;
-    //  RemoveSingleRepeatForce(con,len);
-    //}
-    //else
-    RemoveSingleRepeatAuto(con, len);
-    if (len <= 0 && !space)
-      return;
-  }
-
-  // jichi 9/1/2013: manual repetition count removed
-  //if(setman->GetValue(SETTING_CYCLIC_REMOVE)) {
-  //  //if (status & REPEAT_NUMBER_DECIDED)
-  //    RemoveCyclicRepeat(con,len);
-  //}
-  //if (len <= 0)
-  //  return;
-
-  // jichi 10/27/2013: User-defined filter callback is disabled
-  //if (filter)
-  //  len = filter(this, con,len, new_line, app_data);
-  //if (len <= 0)
-  //  return;
 
   if (len && sentence_length == 0) {
     if (status & USING_UNICODE) {
@@ -274,87 +114,23 @@ void TextThread::AddText(const BYTE *con, int len, bool new_line, bool space)
       return;
   }
 
-  if (status & BUFF_NEWLINE)
-    AddLineBreak();
-
   if (len)
-    if (new_line) {
-      prev_sentence = last_sentence;
-      last_sentence = used + 4;
-      if (status & USING_UNICODE)
-        last_sentence += 4;
-      sentence_length = 0;
-    } else {
-      SetNewLineTimer();
-      if (link) {
-        const BYTE *send = con;
-        int l = len;
-        if (status & USING_UNICODE) { // Although unlikely, a thread and its link may have different encoding.
-          if ((link->Status() & USING_UNICODE) == 0) {
-            send = new BYTE[l];
-            //::memset(send, 0, l); // jichi 9/26/2013: zero memory
-            l = WC_MB((LPWSTR)con, (char *)send);
-          }
-          link->AddTextDirect(send, l, space);
-        } else {
-          if (link->Status() & USING_UNICODE) {
-            size_t sz = len * 2 + 2;
-            send = new BYTE[sz];
-            //::memset(send, 0, sz); // jichi 9/26/2013: zero memory
-            l = MB_WC((char *)con, (LPWSTR)send) << 1;
-          }
-          link->AddTextDirect(send, l, space);
-        }
-        link->SetNewLineTimer();
-        if (send != con)
-          delete[] send;
-      }
+    {
       sentence_length += len;
     }
 
   BYTE *data = const_cast<BYTE *>(con); // jichi 10/27/2013: TODO: Figure out where con is modified
   if (output)
-    len = output(this, data, len, new_line, app_data, space);
-  if (AddToStore(data, len)) {
-    //sentence_length += len;
-    /*ResetRepeatStatus();
-    last_sentence=0;
-    prev_sentence=0;
-    sentence_length=len;
-    repeat_index=0;
-    status&=~REPEAT_DETECT|REPEAT_SUPPRESS;    */
+  {
+	  len = output(this, data, len, false, app_data, space);
   }
+    
+  AddToStore(data, len);
 }
 
 void TextThread::AddTextDirect(const BYTE* con, int len, bool space) // Add to store directly, penetrating repetition filters.
 {
   // jichi 10/27/2013: Accordig to the logic, both len and con must be > 0
-  if (status & BUFF_NEWLINE)
-    AddLineBreak();
-  //SetNewLineTimer();
-  if (link) {
-    const BYTE *send = con;
-    int l = len;
-    if (status & USING_UNICODE) {
-      if ((link->Status()&USING_UNICODE) == 0) {
-        send = new BYTE[l];
-        //::memset(send, 0, l); // jichi 9/26/2013: zero memory
-        l = WC_MB((LPWSTR)con,(char*)send);
-      }
-      link->AddText(send, l, false, space); // new_line is false
-    } else {
-      if (link->Status()&USING_UNICODE) {
-        size_t sz = len * 2 + 2;
-        send = new BYTE[sz];
-        //::memset(send, 0, sz); // jichi 9/26/2013: zero memory
-        l = MB_WC((char *)con, (LPWSTR)send) << 1;
-      }
-      link->AddText(send, l, false, space); // new_line is false
-    }
-    link->SetNewLineTimer();
-    if (send != con)
-      delete[] send;
-  }
   sentence_length += len;
 
   BYTE *data = const_cast<BYTE *>(con); // jichi 10/27/2013: TODO: Figure out where con is modified
@@ -386,96 +162,6 @@ DWORD TextThread::GetEntryString(LPSTR str, DWORD max)
     }
   }
   return len;
-}
-
-static char clipboard_buffer[0x400];
-// jichi 8/25/2013: clipboard removed
-void CopyToClipboard(void* str,bool unicode, int len)
-{
-  if (settings->clipboardFlag && str && len > 0)
-  {
-    int size=(len*2|0xF)+1;
-    if (len>=1022) return;
-    memcpy(clipboard_buffer,str,len);
-    *(WORD*)(clipboard_buffer+len)=0;
-    HGLOBAL hCopy;
-    LPWSTR copy;
-    if (OpenClipboard(0))
-    {
-      if (hCopy=GlobalAlloc(GMEM_MOVEABLE,size))
-      {
-        if (copy=(LPWSTR)GlobalLock(hCopy))
-        {
-          if (unicode)
-          {
-            memcpy(copy,clipboard_buffer,len+2);
-          }
-          else
-            copy[MB_WC(clipboard_buffer,copy)]=0;
-          GlobalUnlock(hCopy);
-          EmptyClipboard();
-          SetClipboardData(CF_UNICODETEXT,hCopy);
-        }
-      }
-      CloseClipboard();
-    }
-  }
-}
-void TextThread::CopyLastToClipboard()
-{
-  // jichi 8/25/2013: clipboard removed
-  CopyToClipboard(storage+last_sentence,(status&USING_UNICODE)>0,used-last_sentence);
-}
-
-void TextThread::SetNewLineFlag() { status |= BUFF_NEWLINE; }
-
-bool TextThread::CheckCycle(TextThread* start)
-{
-  if (link==start||this==start) return true;
-  if (link==0) return false;
-  return link->CheckCycle(start);
-}
-void TextThread::SetNewLineTimer()
-{
-  if (thread_number == 0)
-    // jichi 10/27/2013: Not used
-    timer = 0; //SetTimer(hMainWnd,(UINT_PTR)this, settings->splittingInterval, NewLineConsole);
-  else
-	  timer = SetTimer(hMainWnd, (UINT_PTR)this, settings->splittingInterval, NewLineBuff);
-}
-
-DWORD TextThread::GetThreadString(LPSTR str, DWORD max)
-{
-  DWORD len = 0;
-  if (max) {
-    char buffer[0x200];
-    char c;
-    if (thread_string == nullptr)
-      GetEntryString(buffer, 0x200); //This will allocate thread_string.
-    LPSTR end = thread_string;
-    for (; *end; end++);
-    c = thread_string[0];
-    thread_string[0] = ':';
-    LPSTR p1 = end;
-    for (; *p1 != ':'; p1--);
-    thread_string[0] = c;
-    if (p1 == thread_string)
-      return 0;
-    p1++;
-    len = end - p1;
-    if (len >= max)
-      len = max - 1;
-    ::memcpy(str, p1, len);
-    str[len] = 0;
-  }
-
-  return len;
-}
-void TextThread::UnLinkAll()
-{
-  if (link) link->UnLinkAll();
-  link = 0;
-  link_number = -1;
 }
 
 // EOF

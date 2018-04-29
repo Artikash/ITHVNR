@@ -48,12 +48,10 @@ public:
   //virtual void SetComment(LPWSTR);
   //virtual void ExportTextToFile(LPWSTR filename);
 
-  virtual bool CheckCycle(TextThread *start);
-  virtual DWORD GetThreadString(LPSTR str, DWORD max);
   virtual DWORD GetEntryString(LPSTR str, DWORD max = 0x200);
 
   void Reset();
-  void AddText(const BYTE *con,int len, bool new_line, bool space); // jichi 10/27/2013: add const; remove console; add space
+  void AddText(const BYTE *con,int len, bool space); // jichi 10/27/2013: add const; remove console; add space
   void RemoveSingleRepeatAuto(const BYTE *con, int &len); // jichi 10/27/2013: add const
   void RemoveSingleRepeatForce(BYTE *con, int &len);
   void RemoveCyclicRepeat(BYTE *&con, int &len);

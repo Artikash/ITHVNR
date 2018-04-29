@@ -66,13 +66,6 @@ void GetDebugPriv()
   CloseHandle(hToken);
 }
 
-bool sendCommand(HANDLE hCmd, HostCommandType cmd)
-{
-  IO_STATUS_BLOCK ios;
-  DWORD data = cmd;
-  return hCmd && NT_SUCCESS(NtWriteFile(hCmd, 0,0,0, &ios, &data, sizeof(data), 0,0));
-}
-
 bool Inject(HANDLE hProc)
 {
   wchar_t path[MAX_PATH];
@@ -85,7 +78,7 @@ bool Inject(HANDLE hProc)
   p++; // ending with L"\\"
   ::wcscpy(p, ITH_DLL);
 
-  return WinDbg::injectDllW(path, 0, hProc);
+  return injectDllW(path, hProc);
 }
 
 } // unnamed namespace
@@ -98,7 +91,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
   switch (fdwReason)
   {
   case DLL_PROCESS_ATTACH:
-    LdrDisableThreadCalloutsForDll(hinstDLL);
+    DisableThreadLibraryCalls(hinstDLL);
     InitializeCriticalSection(&::cs);
     IthInitSystemService();
     GetDebugPriv();
@@ -133,9 +126,8 @@ IHFSERVICE BOOL IHFAPI Host_Open()
 {
   BOOL result = false;
   EnterCriticalSection(&::cs);
-  DWORD present;
-  hServerMutex = IthCreateMutex(ITH_SERVER_MUTEX, 1, &present);
-  if (present)
+  
+  if ((hServerMutex = CreateMutexW(nullptr, TRUE, ITH_SERVER_MUTEX)) == NULL || GetLastError() == ERROR_ALREADY_EXISTS)
     //MessageBox(0,L"Already running.",0,0);
     // jichi 8/24/2013
     GROWL_WARN(L"I am sorry that this game is attached by some other VNR ><\nPlease restart the game and try again!");
@@ -146,7 +138,7 @@ IHFSERVICE BOOL IHFAPI Host_Open()
     //cmdq = new CommandQueue;
     InitializeCriticalSection(&detach_cs);
 
-    ::hHookMutex = IthCreateMutex(ITH_SERVER_HOOK_MUTEX, FALSE);
+    ::hHookMutex = CreateMutexW(nullptr, FALSE, ITH_SERVER_HOOK_MUTEX);
     result = true;
   }
   LeaveCriticalSection(&::cs);
@@ -159,6 +151,8 @@ IHFSERVICE DWORD IHFAPI Host_Start()
   CreateNewPipe();
   ::hPipeExist = IthCreateEvent(ITH_PIPEEXISTS_EVENT);
   NtSetEvent(::hPipeExist, nullptr);
+  /*char buff[1];
+  man->AddConsoleOutput(buff);*/
   return 0;
 }
 
@@ -169,14 +163,14 @@ IHFSERVICE DWORD IHFAPI Host_Close()
   if (::running) {
     ::running = FALSE;
     HANDLE hRecvPipe = IthOpenPipe(recv_pipe, GENERIC_WRITE);
-    NtClose(hRecvPipe);
-    NtClearEvent(::hPipeExist);
+    CloseHandle(hRecvPipe);
+    ResetEvent(::hPipeExist);
     //delete cmdq;
     delete man;
     delete settings;
-    NtClose(::hHookMutex);
-    NtClose(hServerMutex);
-    NtClose(::hPipeExist);
+    CloseHandle(::hHookMutex);
+    CloseHandle(hServerMutex);
+    CloseHandle(::hPipeExist);
     DeleteCriticalSection(&detach_cs);
     result = TRUE;
   }
@@ -196,23 +190,25 @@ IHFSERVICE bool IHFAPI Host_InjectByPID(DWORD pid)
   }
   if (man->GetProcessRecord(pid)) {
     //ConsoleOutput(AlreadyAttach);
-    DOUT("already attached");
+    man->AddConsoleOutput(L"already attached");
     return false;
   }
   swprintf(str, ITH_HOOKMAN_MUTEX_ L"%d", pid);
-  DWORD s;
-  CloseHandle(IthCreateMutex(str, 0, &s));
-  if (s) {
-    DOUT("already locked");
+  HANDLE temp = CreateMutexW(nullptr, FALSE, str);
+  if (temp == NULL) {
+    man->AddConsoleOutput(L"already locked");
+	CloseHandle(temp);
     return false;
   }
+  CloseHandle(temp);
   return Inject(OpenProcess(
 	  PROCESS_QUERY_INFORMATION|
 	  PROCESS_CREATE_THREAD|
 	  PROCESS_VM_OPERATION|
 	  PROCESS_VM_READ|
 	  PROCESS_VM_WRITE,
-	  FALSE, pid));
+	  FALSE, pid)
+  );
 }
 
 // jichi 7/16/2014: Test if process is valid before creating remote threads
@@ -233,11 +229,6 @@ IHFSERVICE bool IHFAPI Host_ActiveDetachProcess(DWORD pid)
   //hProc = pr->process_handle; //This handle may be closed(thus invalid) during the detach process.
   NtDuplicateObject(NtCurrentProcess(), pr->process_handle,
       NtCurrentProcess(), &hProc, 0, 0, DUPLICATE_SAME_ACCESS); // Make a copy of the process handle.
-  HANDLE hModule = (HANDLE)pr->module_register;
-  if (!hModule) {
-    DOUT("process module not found");
-    return false;
-  }
 
   // jichi 7/15/2014: Process already closed
   if (isProcessTerminated(hProc)) {
@@ -245,11 +236,13 @@ IHFSERVICE bool IHFAPI Host_ActiveDetachProcess(DWORD pid)
     return false;
   }
 
-  DOUT("send detach command");
-  bool ret = sendCommand(hCmd, HOST_COMMAND_DETACH);
-  NtClose(hProc);
+  man->AddConsoleOutput(L"send detach command");
+  DWORD ret,
+	  command = (DWORD)(HOST_COMMAND_DETACH);
+  WriteFile(hCmd, &command, sizeof(DWORD), &ret, NULL);
+  CloseHandle(hProc);
 
-  return ret;
+  return ret == 4;
 }
 
 IHFSERVICE DWORD IHFAPI Host_GetHookManager(HookManager** hookman)
@@ -301,27 +294,6 @@ IHFSERVICE DWORD IHFAPI Host_InsertHook(DWORD pid, HookParam *hp, LPCSTR name)
   return 0;
 }
 
-IHFSERVICE DWORD IHFAPI Host_ModifyHook(DWORD pid, HookParam *hp)
-{
-  ITH_SYNC_HOOK;
-
-  HANDLE hCmd = GetCmdHandleByPID(pid);
-  if (hCmd == 0)
-    return -1;
-  HANDLE hModify = IthCreateEvent(ITH_MODIFYHOOK_EVENT);
-  SendParam sp;
-  sp.type = HOST_COMMAND_MODIFY_HOOK;
-  sp.hp = *hp;
-  IO_STATUS_BLOCK ios;
-  if (NT_SUCCESS(NtWriteFile(hCmd, 0,0,0, &ios, &sp, sizeof(SendParam), 0, 0)))
-    // jichi 9/28/2013: no wait timeout
-    //const LONGLONG timeout = HOOK_TIMEOUT;
-    NtWaitForSingleObject(hModify, 0, nullptr);
-  NtClose(hModify);
-  man->RemoveSingleHook(pid, sp.hp.address);
-  return 0;
-}
-
 IHFSERVICE DWORD IHFAPI Host_RemoveHook(DWORD pid, DWORD addr)
 {
   ITH_SYNC_HOOK;
@@ -341,27 +313,8 @@ IHFSERVICE DWORD IHFAPI Host_RemoveHook(DWORD pid, DWORD addr)
   //const LONGLONG timeout = HOOK_TIMEOUT;
   //NtWaitForSingleObject(hRemoved, 0, (PLARGE_INTEGER)&timeout);
   NtWaitForSingleObject(hRemoved, 0, nullptr);
-  NtClose(hRemoved);
+  CloseHandle(hRemoved);
   man -> RemoveSingleHook(pid, sp.hp.address);
-  return 0;
-}
-
-// 4/30/2015: Removed as not needed. Going to change to json
-IHFSERVICE DWORD IHFAPI Host_AddLink(DWORD from, DWORD to)
-{
-  man->AddLink(from & 0xffff, to & 0xffff);
-  return 0;
-}
-
-IHFSERVICE DWORD IHFAPI Host_UnLink(DWORD from)
-{
-  man->UnLink(from & 0xffff);
-  return 0;
-}
-
-IHFSERVICE DWORD IHFAPI Host_UnLinkAll(DWORD from)
-{
-  man->UnLinkAll(from & 0xffff);
   return 0;
 }
 

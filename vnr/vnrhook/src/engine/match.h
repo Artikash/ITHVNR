@@ -15,7 +15,12 @@ namespace Engine {
 void hijack();
 void terminate();
 
-// jichi 10/21/2014: Return 0 if failed
+/** jichi 12/24/2014
+*  @param  addr  function address
+*  @param  frame  real address of the function, supposed to be the same as addr
+*  @param  stack  address of current stack - 4
+*  @return  If success, which is reverted
+*/
 DWORD InsertDynamicHook(LPVOID addr, DWORD frame, DWORD stack);
 
 } // namespace Engine

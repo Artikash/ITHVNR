@@ -16,6 +16,7 @@
 #include "ithsys/ithsys.h"
 #include "ccutil/ccmacro.h"
 #include <cstdio> // for swprintf
+#include "growl.h"
 
 //#include <ITH\AVL.h>
 //#include <ITH\ntdll.h>
@@ -40,20 +41,9 @@ HANDLE hPipe, //pipe
 
 DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH main module status.
 {
-  // jichi 7/2/2015:This must be consistent with the struct declared in vnrhost/pipe.cc
-  struct {
-    DWORD pid;
-    DWORD module;
-    TextHook *man;
-    //DWORD engine;
-  } u;
 
   swprintf(::detach_mutex, ITH_DETACH_MUTEX_ L"%d", current_process_id);
 
-  u.module = module_base;
-  u.pid = current_process_id;
-  u.man = hookman;
-  //u.engine = engine_base; // jichi 10/19/2014: disable the second dll
   HANDLE hPipeExist = IthOpenEvent(ITH_PIPEEXISTS_EVENT);
   IO_STATUS_BLOCK ios;
   //hLose=IthCreateEvent(lose_event,0,0);
@@ -64,7 +54,7 @@ DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH mai
     while (NtWaitForSingleObject(hPipeExist, 0, &wait_time) == WAIT_TIMEOUT)
       if (!::running)
         goto _release;
-    HANDLE hMutex = IthCreateMutex(ITH_GRANTPIPE_MUTEX, 0);
+    HANDLE hMutex = CreateMutexW(nullptr, FALSE, ITH_GRANTPIPE_MUTEX);
     NtWaitForSingleObject(hMutex, 0, 0);
     while (::hPipe == INVALID_HANDLE_VALUE||
       hCommand == INVALID_HANDLE_VALUE) {
@@ -75,14 +65,14 @@ DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH mai
         hCommand = IthOpenPipe(command, GENERIC_READ);
     }
     //NtClearEvent(hLose);
-    NtWriteFile(::hPipe, 0, 0, 0, &ios, &u, sizeof(u), 0, 0);
+    NtWriteFile(::hPipe, 0, 0, 0, &ios, &current_process_id, sizeof(current_process_id), 0, 0);
     for (int i = 0, count = 0; count < ::current_hook; i++)
       if (hookman[i].RecoverHook()) // jichi 9/27/2013: This is the place where built-in hooks like TextOutA are inserted
         count++;
     //ConsoleOutput(dll_name);
     //OutputDWORD(tree->Count());
-    NtReleaseMutant(hMutex,0);
-    NtClose(hMutex);
+    ReleaseMutex(hMutex);
+    CloseHandle(hMutex);
 
 
     ::live = true;
@@ -91,7 +81,7 @@ DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH mai
     Engine::hijack();
 	ConsoleOutput("vnrcli:WaitForPipe: pipe connected");
 
-    ::hDetach = IthCreateMutex(::detach_mutex,1);
+    ::hDetach = CreateMutexW(nullptr, TRUE, ::detach_mutex);
     while (::running && NtWaitForSingleObject(hPipeExist, 0, &sleep_time) == WAIT_OBJECT_0)
       NtDelayExecution(0, &sleep_time);
     ::live = false;
@@ -106,12 +96,12 @@ DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH mai
       //CliUnlockPipe();
       ReleaseMutex(::hDetach);
     }
-    NtClose(::hDetach);
-    NtClose(::hPipe);
+    CloseHandle(::hDetach);
+    CloseHandle(::hPipe);
   }
 _release:
-  //NtClose(hLose);
-  NtClose(hPipeExist);
+  //CloseHandle(hLose);
+  CloseHandle(hPipeExist);
   return 0;
 }
 
@@ -120,8 +110,7 @@ DWORD WINAPI CommandPipe(LPVOID lpThreadParameter)
   CC_UNUSED(lpThreadParameter);
   DWORD command;
   BYTE buff[0x400] = {};
-  HANDLE hPipeExist;
-  hPipeExist = IthOpenEvent(ITH_PIPEEXISTS_EVENT);
+  HANDLE hPipeExist = IthOpenEvent(ITH_PIPEEXISTS_EVENT);
   IO_STATUS_BLOCK ios={};
 
   if (hPipeExist != INVALID_HANDLE_VALUE)
@@ -135,20 +124,8 @@ DWORD WINAPI CommandPipe(LPVOID lpThreadParameter)
       switch (NtReadFile(hCommand, 0, 0, 0, &ios, buff, 0x200, 0, 0)) {
       case STATUS_PIPE_BROKEN:
       case STATUS_PIPE_DISCONNECTED:
-        NtClearEvent(hPipeExist);
+        ResetEvent(hPipeExist);
         continue;
-      case STATUS_PENDING:
-        NtWaitForSingleObject(hCommand, 0, 0);
-        switch (ios.Status) {
-        case STATUS_PIPE_BROKEN:
-        case STATUS_PIPE_DISCONNECTED:
-          NtClearEvent(hPipeExist);
-          continue;
-        case 0: break;
-        default:
-          if (NtWaitForSingleObject(::hDetach, 0, &wait_time) == WAIT_OBJECT_0)
-            goto _detach;
-        }
       }
       if (ios.uInformation && ::live) {
         command = *(DWORD *)buff;
@@ -171,8 +148,8 @@ DWORD WINAPI CommandPipe(LPVOID lpThreadParameter)
             }
             if (in->Address())
               in->ClearHook();
-            IthSetEvent(hRemoved);
-            NtClose(hRemoved);
+            SetEvent(hRemoved);
+            CloseHandle(hRemoved);
           } break;
         case HOST_COMMAND_DETACH:
           ::running = false;
@@ -182,8 +159,8 @@ DWORD WINAPI CommandPipe(LPVOID lpThreadParameter)
       }
     }
 _detach:
-  NtClose(hPipeExist);
-  NtClose(hCommand);
+  CloseHandle(hPipeExist);
+  CloseHandle(hCommand);
   Util::unloadCurrentModule(); // jichi: this is not always needed
   return 0;
 }

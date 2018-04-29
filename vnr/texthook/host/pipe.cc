@@ -71,108 +71,44 @@ extern HANDLE hPipeExist;
 
 void CreateNewPipe()
 {
-  static DWORD acl[7] = {
-      0x1C0002,
-      1,
-      0x140000,
-      GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE,
-      0x101,
-      0x1000000,
-      0};
-  static SECURITY_DESCRIPTOR sd = {1, 0, 4, 0, 0, 0, (PACL)acl};
-
   HANDLE hTextPipe, hCmdPipe, hThread;
-  IO_STATUS_BLOCK ios;
-  UNICODE_STRING us;
 
-  OBJECT_ATTRIBUTES oa = {sizeof(oa), 0, &us, OBJ_CASE_INSENSITIVE, &sd, 0};
-  LARGE_INTEGER time = {-500000, -1};
-
-  RtlInitUnicodeString(&us, recv_pipe);
-  if (!NT_SUCCESS(NtCreateNamedPipeFile(
-      &hTextPipe,
-      GENERIC_READ | SYNCHRONIZE,
-      &oa,
-      &ios,
-      FILE_SHARE_WRITE,
-      FILE_OPEN_IF,
-      FILE_SYNCHRONOUS_IO_NONALERT,
-      1, 1, 0, -1,
-      0x1000,
-      0x1000,
-      &time))) {
-    //ConsoleOutput(ErrorCreatePipe);
-    DOUT("failed to create recv pipe");
-    return;
-  }
-
-  //hTextPipe = CreateNamedPipeW(ITH_TEXT_PIPE, PIPE_ACCESS_INBOUND, PIPE_READMODE_MESSAGE, PIPE_UNLIMITED_INSTANCES, 0x1000, 0x1000, 1000000, NULL);
-
-  RtlInitUnicodeString(&us, command_pipe);
-  if (!NT_SUCCESS(NtCreateNamedPipeFile(
-      &hCmdPipe,
-      GENERIC_WRITE | SYNCHRONIZE,
-      &oa,
-      &ios,
-      FILE_SHARE_READ,
-      FILE_OPEN_IF,
-      FILE_SYNCHRONOUS_IO_NONALERT,
-      1, 1, 0, -1,
-      0x1000,
-      0x1000,
-      &time))) {
-    //ConsoleOutput(ErrorCreatePipe);
-    DOUT("failed to create cmd pipe");
-    return;
-  }
-
+  hTextPipe = CreateNamedPipeW(ITH_TEXT_PIPE, PIPE_ACCESS_INBOUND, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE, PIPE_UNLIMITED_INSTANCES, 0x1000, 0x1000, MAXDWORD, NULL);
+  hCmdPipe = CreateNamedPipeW(ITH_COMMAND_PIPE, PIPE_ACCESS_OUTBOUND, 0, PIPE_UNLIMITED_INSTANCES, 0x1000, 0x1000, MAXDWORD, NULL);
   hThread = IthCreateRemoteThread(RecvThread, (DWORD)hTextPipe);
   man->RegisterPipe(hTextPipe, hCmdPipe, hThread);
 }
 
 void DetachFromProcess(DWORD pid)
 {
-  HANDLE hMutex = INVALID_HANDLE_VALUE,
-         hEvent = INVALID_HANDLE_VALUE;
+  HANDLE hMutex = INVALID_HANDLE_VALUE;
   IO_STATUS_BLOCK ios;
   ProcessRecord *pr = man->GetProcessRecord(pid);
   if (!pr)
     return;
-  hEvent = IthCreateEvent(nullptr);
-  if (STATUS_PENDING == NtFsControlFile(
-      man->GetCmdHandleByPID(pid),
-      hEvent,
-      0,0,
-      &ios,
-      CTL_CODE(FILE_DEVICE_NAMED_PIPE, NAMED_PIPE_DISCONNECT, 0, 0),
-      0,0,0,0))
-    NtWaitForSingleObject(hEvent, 0, 0);
-  NtClose(hEvent);
+  NtFsControlFile(man->GetCmdHandleByPID(pid), NULL, 0, 0, &ios,CTL_CODE(FILE_DEVICE_NAMED_PIPE, NAMED_PIPE_DISCONNECT, 0, 0), 0, 0, 0, 0);
 
   WCHAR mutex[0x20];
   swprintf(mutex, ITH_DETACH_MUTEX_ L"%d", pid);
   hMutex = IthOpenMutex(mutex);
   if (hMutex != INVALID_HANDLE_VALUE) {
     NtWaitForSingleObject(hMutex, 0, 0);
-    NtReleaseMutant(hMutex, 0);
-    NtClose(hMutex);
+    ReleaseMutex(hMutex);
+    CloseHandle(hMutex);
   }
   if (::running)
-    NtSetEvent(hPipeExist, 0);
+    SetEvent(hPipeExist);
 }
 
 DWORD WINAPI RecvThread(LPVOID lpThreadParameter)
 {
   HANDLE hTextPipe = (HANDLE)lpThreadParameter;
 
-  IO_STATUS_BLOCK ios;
-  NtFsControlFile(hTextPipe,
-     0, 0, 0,
-     &ios,
-     CTL_CODE(FILE_DEVICE_NAMED_PIPE, NAMED_PIPE_CONNECT, 0, 0),
-     0, 0, 0, 0);
+  int len;
+  IO_STATUS_BLOCK ios = {};
+  Sleep(100);
   if (!::running) {
-    NtClose(hTextPipe);
+    CloseHandle(hTextPipe);
     return 0;
   }
 
@@ -181,20 +117,17 @@ DWORD WINAPI RecvThread(LPVOID lpThreadParameter)
   enum { PipeBufferSize = 0x1000 };
   buff = new BYTE[PipeBufferSize];
   ::memset(buff, 0, PipeBufferSize); // jichi 8/27/2013: zero memory, or it will crash wine on start up
-  enum { module_struct_size = 12 };
-  NtReadFile(hTextPipe, 0, 0, 0, &ios, buff, module_struct_size, 0, 0);
+  NtReadFile(hTextPipe, 0, 0, 0, &ios, buff, sizeof(DWORD), 0, 0);
 
   // jichi 7/2/2015: This must be consistent with the struct declared in vnrhook/pipe.cc
-  DWORD pid = *(DWORD *)buff,
-        module = *(DWORD *)(buff + 0x8),
-        hookman = *(DWORD *)(buff + 0x4);
-        //engine = *(DWORD *)(buff + 0xc);
-  man->RegisterProcess(pid, hookman, module);
+  DWORD pid = *(DWORD *)buff;
+  man->RegisterProcess(pid);
 
   // jichi 9/27/2013: why recursion?
+  // Artikash 4/28/2018 to create another pipe for another process to attach to
   CreateNewPipe();
 
-  //NtClose(IthCreateThread(UpdateWindows,0));
+  //CloseHandle(IthCreateThread(UpdateWindows,0));
   while (::running) {
     if (!NT_SUCCESS(NtReadFile(hTextPipe,
         0, 0, 0,
@@ -241,9 +174,9 @@ DWORD WINAPI RecvThread(LPVOID lpThreadParameter)
       //ITH_DEBUG_DWORD9(RecvLen - 0xc,
       //    buff[0xc], buff[0xd], buff[0xe], buff[0xf],
       //    buff[0x10], buff[0x11], buff[0x12], buff[0x13]);
-
+		
       const BYTE *data = buff + data_offset; // th
-      int len = RecvLen - data_offset;
+      len = RecvLen - data_offset;
       bool space = ::has_leading_space(data, len);
       if (space) {
         const BYTE *it = ::Filter(data, len);
@@ -252,7 +185,6 @@ DWORD WINAPI RecvThread(LPVOID lpThreadParameter)
       }
       if (len >> 31) // jichi 10/27/2013: len is too large, which seldom happens
         len = 0;
-      //man->DispatchText(pid, len ? data : nullptr, hook, retn, split, len, space);
       man->DispatchText(pid, data, hook, retn, split, len, space);
     }
   }
@@ -270,7 +202,7 @@ DWORD WINAPI RecvThread(LPVOID lpThreadParameter)
       0, 0, 0, 0))
     NtWaitForSingleObject(hDisconnect, 0, 0);
 
-  NtClose(hDisconnect);
+  CloseHandle(hDisconnect);
   DetachFromProcess(pid);
   man->UnRegisterProcess(pid);
 

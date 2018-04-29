@@ -908,6 +908,12 @@ void hijackThreadProc(LPVOID lpThreadParameter)
 
 // - API -
 
+/** jichi 12/24/2014
+*  @param  addr  function address
+*  @param  frame  real address of the function, supposed to be the same as addr
+*  @param  stack  address of current stack - 4
+*  @return  If success, which is reverted
+*/
 DWORD Engine::InsertDynamicHook(LPVOID addr, DWORD frame, DWORD stack)
 { return trigger_fun_ ? !trigger_fun_(addr, frame, stack) : 0; }
 
@@ -924,7 +930,7 @@ void Engine::terminate()
   if (hijackThread) {
     const LONGLONG timeout = -50000000; // in nanoseconds = 5 seconds
     NtWaitForSingleObject(hijackThread, 0, (PLARGE_INTEGER)&timeout);
-    NtClose(hijackThread);
+    CloseHandle(hijackThread);
     hijackThread = 0;
   }
 }

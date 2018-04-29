@@ -20,8 +20,6 @@ set(vnrhost_src
   pipe.cc
   textthread.cc
   ${PROJECT_SOURCE_DIR}/winmutex/winmutex.h
-  ${PROJECT_SOURCE_DIR}/windbg/windbg.h
-  ${PROJECT_SOURCE_DIR}/windbg/windbg_p.h
   ${PROJECT_SOURCE_DIR}/windbg/inject.h
   ${PROJECT_SOURCE_DIR}/windbg/inject.cc
   ${PROJECT_SOURCE_DIR}/sakurakit/skdebug.h

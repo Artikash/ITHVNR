@@ -106,11 +106,11 @@ public:
   explicit IthMutexLocker(HANDLE mutex) : m(mutex)
   { NtWaitForSingleObject(m, 0, 0); }
 
-  ~IthMutexLocker() { if (m != INVALID_HANDLE_VALUE) IthReleaseMutex(m); }
+  ~IthMutexLocker() { if (m != INVALID_HANDLE_VALUE) ReleaseMutex(m); }
 
   bool locked() const  { return m != INVALID_HANDLE_VALUE; }
 
-  void unlock()  { if (m != INVALID_HANDLE_VALUE) { IthReleaseMutex(m); m = INVALID_HANDLE_VALUE; } }
+  void unlock()  { if (m != INVALID_HANDLE_VALUE) { ReleaseMutex(m); m = INVALID_HANDLE_VALUE; } }
 };
 
 /** Get current dll path.

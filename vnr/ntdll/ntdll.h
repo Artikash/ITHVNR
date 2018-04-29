@@ -3575,13 +3575,6 @@ NtReplyPort(
 );
 
 NTSYSAPI
-NTSTATUS
-NTAPI
-NtClose(
-  __in  HANDLE  hObject
-);
-
-NTSYSAPI
 ULONG
 NTAPI
 RtlNtStatusToDosError(

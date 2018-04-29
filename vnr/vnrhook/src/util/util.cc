@@ -311,7 +311,7 @@ bool Util::unloadCurrentModule()
   if (HANDLE h = ::IthCreateRemoteThread(fun, (DWORD)&__ImageBase)) {
     //const LONGLONG timeout = -50000000; // in nanoseconds = 5 seconds
     //NtWaitForSingleObject(h, 0, (PLARGE_INTEGER)&timeout);
-    NtClose(h);
+    CloseHandle(h);
     return true;
   }
 

@@ -175,7 +175,7 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD fdwReason, LPVOID lpReserved)
         return TRUE;
       attached_ = true;
 
-      LdrDisableThreadCalloutsForDll(hModule);
+      DisableThreadLibraryCalls(hModule);
 
       //IthBreak();
       ::module_base = (DWORD)hModule;
@@ -210,18 +210,17 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD fdwReason, LPVOID lpReserved)
       {
         wchar_t hm_mutex[0x100];
         swprintf(hm_mutex, ITH_HOOKMAN_MUTEX_ L"%d", current_process_id);
-        ::hmMutex = IthCreateMutex(hm_mutex, FALSE);
+        ::hmMutex = CreateMutexW(nullptr, FALSE, hm_mutex);
       }
       {
         wchar_t dll_mutex[0x100];
         swprintf(dll_mutex, ITH_PROCESS_MUTEX_ L"%d", current_process_id);
         DWORD exists;
-        ::hMutex = IthCreateMutex(dll_mutex, TRUE, &exists); // jichi 9/18/2013: own is true, make sure the injected dll is singleton
-        if (exists)
+        if ((::hMutex = CreateMutexW(nullptr, TRUE, dll_mutex)) == NULL)
           return FALSE;
       }
 
-      hDllExist = IthCreateMutex(dll_exist, 0);
+      hDllExist = CreateMutexW(nullptr, FALSE, dll_exist);
       hDLL = hModule;
       ::running = true;
       ::current_available = ::hookman;
@@ -250,12 +249,12 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD fdwReason, LPVOID lpReserved)
 
       if (hSendThread) {
         NtWaitForSingleObject(hSendThread, 0, (PLARGE_INTEGER)&timeout);
-        NtClose(hSendThread);
+        CloseHandle(hSendThread);
       }
 
       if (hCmdThread) {
         NtWaitForSingleObject(hCmdThread, 0, (PLARGE_INTEGER)&timeout);
-        NtClose(hCmdThread);
+        CloseHandle(hCmdThread);
       }
 
       for (TextHook *man = ::hookman; man->RemoveHook(); man++);
@@ -269,13 +268,13 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD fdwReason, LPVOID lpReserved)
       NtUnmapViewOfSection(NtCurrentProcess(), ::hookman);
       //else
       //  delete[] ::hookman;
-      NtClose(hSection);
-      NtClose(hMutex);
+      CloseHandle(hSection);
+      CloseHandle(hMutex);
 
       delete ::tree;
       IthCloseSystemService();
-      NtClose(hmMutex);
-      NtClose(hDllExist);
+      CloseHandle(hmMutex);
+      CloseHandle(hDllExist);
       //} ITH_EXCEPT {}
     } break;
   }
