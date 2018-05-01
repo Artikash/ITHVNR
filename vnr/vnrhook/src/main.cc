@@ -166,10 +166,10 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD fdwReason, LPVOID lpReserved)
   // jichi 9/23/2013: wine deficenciy on mapping sections
   // Whe set to false, do not map sections.
   //static bool ith_has_section = true;
-
   switch (fdwReason) {
   case DLL_PROCESS_ATTACH:
     {
+	  
       static bool attached_ = false;
       if (attached_) // already attached
         return TRUE;
@@ -216,7 +216,7 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD fdwReason, LPVOID lpReserved)
         wchar_t dll_mutex[0x100];
         swprintf(dll_mutex, ITH_PROCESS_MUTEX_ L"%d", current_process_id);
         DWORD exists;
-        if ((::hMutex = CreateMutexW(nullptr, TRUE, dll_mutex)) == NULL)
+        if ((::hMutex = CreateMutexW(nullptr, TRUE, dll_mutex)) == NULL || GetLastError == ERROR_ALREADY_EXISTS)
           return FALSE;
       }
 

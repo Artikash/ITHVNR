@@ -66,6 +66,7 @@ DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH mai
     }
     //NtClearEvent(hLose);
     NtWriteFile(::hPipe, 0, 0, 0, &ios, &current_process_id, sizeof(current_process_id), 0, 0);
+	ConsoleOutput("Writing process id");
     for (int i = 0, count = 0; count < ::current_hook; i++)
       if (hookman[i].RecoverHook()) // jichi 9/27/2013: This is the place where built-in hooks like TextOutA are inserted
         count++;
@@ -92,6 +93,7 @@ DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH mai
     if (!::running) {
       //CliLockPipe();
       //NtWriteFile(::hPipe, 0, 0, 0, &ios, man, 4, 0, 0);
+		GROWL_MSG(L"Write hookman");
       NtWriteFile(::hPipe, 0, 0, 0, &ios, hookman, 4, 0, 0);
       //CliUnlockPipe();
       ReleaseMutex(::hDetach);
@@ -126,6 +128,9 @@ DWORD WINAPI CommandPipe(LPVOID lpThreadParameter)
       case STATUS_PIPE_DISCONNECTED:
         ResetEvent(hPipeExist);
         continue;
+	  default:
+		  if (WaitForSingleObject(::hDetach, MAXDWORD) == WAIT_OBJECT_0)
+			  goto _detach;
       }
       if (ios.uInformation && ::live) {
         command = *(DWORD *)buff;
