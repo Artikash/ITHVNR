@@ -367,6 +367,8 @@ void HookManager::RegisterProcess(DWORD pid)
 {
   HM_LOCK;
   wchar_t str[0x40];
+  if (pid == NULL)
+	  return;
   record[register_count - 1].pid_register = pid;
   swprintf(str, ITH_SECTION_ L"%d", pid);
   HANDLE hSection = IthCreateSection(str, HOOK_SECTION_SIZE, PAGE_READONLY);
@@ -543,19 +545,6 @@ void HookManager::ClearCurrent()
   //LeaveCriticalSection(&hmcs);
   //ConsoleOutput("vnrhost:ClearCurrent: unlock");
 }
-//void HookManager::LockHookman(){ EnterCriticalSection(&hmcs); }
-//void HookManager::UnlockHookman(){ LeaveCriticalSection(&hmcs); }
-
-/*void HookManager::SetProcessEngineType(DWORD pid, DWORD type)
-{
-  int i;
-  for (i=0;i<MAX_REGISTER;i++)
-    if (record[i].pid_register==pid) break;
-  if (i<MAX_REGISTER)
-  {
-    record[i].engine_register|=type;
-  }
-}*/
 
 ProcessRecord *HookManager::GetProcessRecord(DWORD pid)
 {
@@ -574,7 +563,7 @@ DWORD HookManager::GetCurrentPID() { return current_pid; }
 
 HANDLE HookManager::GetCmdHandleByPID(DWORD pid)
 {
-  HM_LOCK;
+  //HM_LOCK;
   //EnterCriticalSection(&hmcs);
   for (int i = 0; i < MAX_REGISTER; i++)
     if (record[i].pid_register == pid)
@@ -588,91 +577,9 @@ HANDLE HookManager::GetCmdHandleByPID(DWORD pid)
 MK_BASIC_TYPE(DWORD)
 MK_BASIC_TYPE(LPVOID)
 
-//DWORD Hash(LPCWSTR module, int length)
-//{
-//  bool flag = (length==-1);
-//  DWORD hash = 0;
-//  for (;*module && (flag || length--); module++)
-//    hash = ((hash>>7)|(hash<<25)) + *module;
-//  return hash;
-//}
-
 DWORD  GetCurrentPID() { return ::man->GetCurrentPID(); }
 
 HANDLE  GetCmdHandleByPID(DWORD pid) { return ::man->GetCmdHandleByPID(pid); }
-
-//void AddLink(WORD from, WORD to) { ::man->AddLink(from, to); }
-
-// jichi 9/27/2013: Unparse to hook parameters /H code
-void GetCode(const HookParam &hp, LPWSTR buffer, DWORD pid)
-{
-  WCHAR c;
-  LPWSTR ptr = buffer;
-  // jichi 12/7/2014: disabled
-  //if (hp.type&PRINT_DWORD)
-  //  c = L'H';
-  if (hp.type&USING_UNICODE) {
-    if (hp.type&USING_STRING)
-      c = L'Q';
-    else if (hp.type&STRING_LAST_CHAR)
-      c = L'L';
-    else
-      c = L'W';
-  } else {
-    if (hp.type&USING_STRING)
-      c = L'S';
-    else if (hp.type&BIG_ENDIAN)
-      c = L'A';
-    else if (hp.type&STRING_LAST_CHAR)
-      c = L'E';
-    else
-      c = L'B';
-  }
-  ptr += swprintf(ptr, L"/H%c",c);
-  if (hp.type & NO_CONTEXT)
-    *ptr++ = L'N';
-  if (hp.offset>>31)
-    ptr += swprintf(ptr, L"-%X",-(hp.offset+4));
-  else
-    ptr += swprintf(ptr, L"%X",hp.offset);
-  if (hp.type & DATA_INDIRECT) {
-    if (hp.index>>31)
-      ptr += swprintf(ptr, L"*-%X",-hp.index);
-    else
-      ptr += swprintf(ptr,L"*%X",hp.index);
-  }
-  if (hp.type & USING_SPLIT) {
-    if (hp.split >> 31)
-      ptr += swprintf(ptr, L":-%X", -(4 + hp.split));
-    else
-      ptr += swprintf(ptr, L":%X", hp.split);
-  }
-  if (hp.type & SPLIT_INDIRECT) {
-    if (hp.split_index >> 31)
-      ptr += swprintf(ptr, L"*-%X", -hp.split_index);
-    else
-      ptr += swprintf(ptr, L"*%X", hp.split_index);
-  }
-  if (hp.module) {
-    if (pid) {
-      WCHAR path[MAX_PATH];
-      MEMORY_BASIC_INFORMATION info;
-      ProcessRecord* pr = ::man->GetProcessRecord(pid);
-      if (pr) {
-        HANDLE hProc = pr->process_handle;
-        if (NT_SUCCESS(NtQueryVirtualMemory(hProc,(PVOID)hp.address, MemorySectionName, path, MAX_PATH*2, 0)) &&
-            NT_SUCCESS(NtQueryVirtualMemory(hProc,(PVOID)hp.address, MemoryBasicInformation, &info, sizeof(info), 0)))
-          ptr += swprintf(ptr, L"@%X:%s", hp.address - (DWORD)info. AllocationBase, wcsrchr(path,L'\\') + 1);
-      }
-    } else {
-      ptr += swprintf(ptr, L"@%X!%X", hp.address, hp.module);
-      if (hp.function)
-        ptr += swprintf(ptr, L"!%X", hp.function);
-    }
-  }
-  else
-    ptr += swprintf(ptr, L"@%X", hp.address);
-}
 
 // jichi 1/16/2015
 bool HookManager::IsFull() const { return new_thread_number >= MAX_HOOK; }

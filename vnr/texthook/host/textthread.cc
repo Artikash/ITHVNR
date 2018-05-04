@@ -31,7 +31,6 @@ static DWORD MIN_REDETECT = 0x80;
 DWORD GetHookName(LPSTR str, DWORD pid, DWORD hook_addr,DWORD max);
 
 extern Settings *settings;
-extern HWND hMainWnd;
 
 TextThread::TextThread(DWORD id, DWORD hook, DWORD retn, DWORD spl, WORD num) :
   //,tp
@@ -67,19 +66,6 @@ TextThread::TextThread(DWORD id, DWORD hook, DWORD retn, DWORD spl, WORD num) :
 }
 TextThread::~TextThread()
 {
-  //KillTimer(hMainWnd,timer);
-  RepeatCountNode *t = head,
-                  *tt;
-  while (t) {
-    tt = t;
-    t = tt->next;
-    delete tt;
-  }
-  head = nullptr;
-  //if (comment) {
-  //  delete[] comment;
-  //  comment = nullptr;
-  //}
   if (thread_string)
     delete[] thread_string;
 }
@@ -96,53 +82,19 @@ void TextThread::Reset()
 
 void TextThread::AddText(const BYTE *con, int len, bool space)
 {
-  if (!con || (len <= 0 && !space))
-    return;
-
-  if (len && sentence_length == 0) {
-    if (status & USING_UNICODE) {
-      if (*(WORD *)con == 0x3000) { // jichi 10/27/2013: why skip unicode space?!
-        con += 2;
-        len -= 2;
-      }
-    } else if (*(WORD *)con == 0x4081) {
-      con += 2;
-      len -= 2;
-    }
-
     if (len <= 0 && !space)
       return;
-  }
-
-  if (len)
-    {
-      sentence_length += len;
-    }
 
   BYTE *data = const_cast<BYTE *>(con); // jichi 10/27/2013: TODO: Figure out where con is modified
   if (output)
-  {
 	  len = output(this, data, len, false, app_data, space);
-  }
     
-  AddToStore(data, len);
-}
-
-void TextThread::AddTextDirect(const BYTE* con, int len, bool space) // Add to store directly, penetrating repetition filters.
-{
-  // jichi 10/27/2013: Accordig to the logic, both len and con must be > 0
-  sentence_length += len;
-
-  BYTE *data = const_cast<BYTE *>(con); // jichi 10/27/2013: TODO: Figure out where con is modified
-  if (output)
-    len = output(this, data, len, false, app_data, space);
   AddToStore(data, len);
 }
 
 DWORD TextThread::GetEntryString(LPSTR str, DWORD max)
 {
   DWORD len = 0;
-  if (str && max > 0x40) {
     max--;
     if (thread_string) {
       len = ::strlen(thread_string);
@@ -156,11 +108,9 @@ DWORD TextThread::GetEntryString(LPSTR str, DWORD max)
 
       len += GetHookName(str + len, tp.pid, tp.hook, max - len);
       thread_string = new char[len + 1];
-      //::memset(thread_string, 0, (len+1) * sizeof(wchar_t)); // jichi 9/26/2013: zero memory
       thread_string[len] = 0;
       ::memcpy(thread_string, str, len);
     }
-  }
   return len;
 }
 

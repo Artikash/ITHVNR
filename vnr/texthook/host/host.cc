@@ -46,25 +46,12 @@ HANDLE hHookMutex;  // jichi 9/28/2013: used to guard hook modification
 extern CRITICAL_SECTION detach_cs;
 
 Settings *settings;
-HWND hMainWnd;
 HANDLE hPipeExist;
 BOOL running;
 
 #define ITH_SYNC_HOOK   IthMutexLocker locker(::hHookMutex)
 
 namespace { // unnamed
-
-void GetDebugPriv()
-{
-  HANDLE  hToken;
-  DWORD  dwRet;
-
-  TOKEN_PRIVILEGES Privileges = {1,{0x14,0,SE_PRIVILEGE_ENABLED}};
-
-  OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken);
-  AdjustTokenPrivileges(hToken, 0, &Privileges, sizeof(Privileges), 0, &dwRet);
-  CloseHandle(hToken);
-}
 
 bool Inject(HANDLE hProc)
 {
@@ -94,18 +81,12 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
     DisableThreadLibraryCalls(hinstDLL);
     InitializeCriticalSection(&::cs);
     IthInitSystemService();
-    GetDebugPriv();
-    InitCommonControls();
-    // jichi 8/24/2013: Create hidden window so that ITH can access timer and events
-    hMainWnd = CreateWindowW(L"Button", L"InternalWindow", 0, 0, 0, 0, 0, 0, 0, hinstDLL, 0);
     break;
   case DLL_PROCESS_DETACH:
     if (::running)
       Host_Close();
     DeleteCriticalSection(&::cs);
     IthCloseSystemService();
-    //wm_destroy_window(hMainWnd);
-	DestroyWindow(hMainWnd);
     break;
   default:
     break;
@@ -127,11 +108,11 @@ IHFSERVICE BOOL IHFAPI Host_Open()
   BOOL result = false;
   EnterCriticalSection(&::cs);
   
-  if ((hServerMutex = CreateMutexW(nullptr, TRUE, ITH_SERVER_MUTEX)) == NULL || GetLastError() == ERROR_ALREADY_EXISTS)
-    //MessageBox(0,L"Already running.",0,0);
-    // jichi 8/24/2013
-    GROWL_WARN(L"I am sorry that this game is attached by some other VNR ><\nPlease restart the game and try again!");
-  else if (!::running) {
+  if ((hServerMutex = CreateMutexW(nullptr, TRUE, ITH_SERVER_MUTEX)) == NULL || GetLastError() == ERROR_ALREADY_EXISTS) {
+	  GROWL_WARN(L"I am sorry that this game is attached by some other VNR ><\nPlease restart the game and try again!");
+	  return false;
+  }
+  else {
     ::running = true;
     ::settings = new Settings;
     ::man = new HookManager;
@@ -218,7 +199,7 @@ static bool isProcessTerminated(HANDLE hProc)
 
 IHFSERVICE bool IHFAPI Host_ActiveDetachProcess(DWORD pid)
 {
-  ITH_SYNC_HOOK;
+  //ITH_SYNC_HOOK;
 
   //man->LockHookman();
   ProcessRecord *pr = man->GetProcessRecord(pid);
@@ -255,16 +236,6 @@ IHFSERVICE DWORD IHFAPI Host_GetHookManager(HookManager** hookman)
     return 1;
 }
 
-IHFSERVICE bool IHFAPI Host_GetSettings(Settings **p)
-{
-  if (::running) {
-    *p = settings;
-    return true;
-  }
-  else
-    return false;
-}
-
 IHFSERVICE DWORD IHFAPI Host_InsertHook(DWORD pid, HookParam *hp, LPCSTR name)
 {
   ITH_SYNC_HOOK;
@@ -294,28 +265,14 @@ IHFSERVICE DWORD IHFAPI Host_InsertHook(DWORD pid, HookParam *hp, LPCSTR name)
   return 0;
 }
 
-IHFSERVICE DWORD IHFAPI Host_RemoveHook(DWORD pid, DWORD addr)
+IHFSERVICE bool IHFAPI Host_GetSettings(Settings **p)
 {
-  ITH_SYNC_HOOK;
-
-  HANDLE hRemoved,hCmd;
-  hCmd = GetCmdHandleByPID(pid);
-  if (hCmd == 0)
-    return -1;
-  hRemoved = IthCreateEvent(ITH_REMOVEHOOK_EVENT);
-  SendParam sp = {};
-  IO_STATUS_BLOCK ios;
-  sp.type = HOST_COMMAND_REMOVE_HOOK;
-  sp.hp.address = addr;
-  //cmdq -> AddRequest(sp, pid);
-  NtWriteFile(hCmd, 0,0,0, &ios, &sp, sizeof(SendParam),0,0);
-  // jichi 10/22/2013: Timeout might crash vnrsrv
-  //const LONGLONG timeout = HOOK_TIMEOUT;
-  //NtWaitForSingleObject(hRemoved, 0, (PLARGE_INTEGER)&timeout);
-  NtWaitForSingleObject(hRemoved, 0, nullptr);
-  CloseHandle(hRemoved);
-  man -> RemoveSingleHook(pid, sp.hp.address);
-  return 0;
+	if (::running) {
+		*p = settings;
+		return true;
+	}
+	else
+		return false;
 }
 
 // EOF

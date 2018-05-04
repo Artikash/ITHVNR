@@ -361,22 +361,6 @@ void ClickButton(HWND hWnd, HWND h)
 		}
 		pfman->SaveProfiles();
 	}
-	else if (h == hwndRemoveHook)
-	{
-		WCHAR str[32];
-		if (GetWindowText(hwndCombo, str, 32))
-		{
-			std::wstring entry(str);
-			std::size_t i;
-			DWORD threadNumber = std::stoul(entry, &i, 16);
-			entry = entry.substr(i + 1);
-			DWORD pid = std::stoul(entry, &i);
-			entry = entry.substr(i + 1);
-			DWORD addr = std::stoul(entry, NULL, 16);
-			if (threadNumber != 0)
-				Host_RemoveHook(pid, addr);
-		}
-	}
 }
 
 DWORD ThreadFilter(TextThread* thread, BYTE* out, DWORD len, DWORD new_line, PVOID data, bool space)
