@@ -128,9 +128,6 @@ DWORD WINAPI CommandPipe(LPVOID lpThreadParameter)
       case STATUS_PIPE_DISCONNECTED:
         ResetEvent(hPipeExist);
         continue;
-	  default:
-		  if (WaitForSingleObject(::hDetach, MAXDWORD) == WAIT_OBJECT_0)
-			  goto _detach;
       }
       if (ios.uInformation && ::live) {
         command = *(DWORD *)buff;
@@ -164,6 +161,7 @@ DWORD WINAPI CommandPipe(LPVOID lpThreadParameter)
       }
     }
 _detach:
+  GROWL_MSG(L"Detaching");
   CloseHandle(hPipeExist);
   CloseHandle(hCommand);
   Util::unloadCurrentModule(); // jichi: this is not always needed

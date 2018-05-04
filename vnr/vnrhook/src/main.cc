@@ -216,7 +216,7 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD fdwReason, LPVOID lpReserved)
         wchar_t dll_mutex[0x100];
         swprintf(dll_mutex, ITH_PROCESS_MUTEX_ L"%d", current_process_id);
         DWORD exists;
-        if ((::hMutex = CreateMutexW(nullptr, TRUE, dll_mutex)) == NULL || GetLastError == ERROR_ALREADY_EXISTS)
+        if ((::hMutex = CreateMutexW(nullptr, TRUE, dll_mutex)) == NULL || GetLastError() == ERROR_ALREADY_EXISTS)
           return FALSE;
       }
 
