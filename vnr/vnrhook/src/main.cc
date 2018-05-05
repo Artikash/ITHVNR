@@ -74,55 +74,8 @@ extern DWORD enter_count;
 //extern LPWSTR current_dir;
 extern DWORD engine_type;
 extern DWORD module_base;
-AVLTree<char, FunctionInfo, SCMP, SCPY, SLEN> *tree;
 
 namespace { // unnamed
-
-void AddModule(DWORD hModule, DWORD size, LPWSTR name)
-{
-  FunctionInfo info = {0, hModule, size, name};
-  IMAGE_DOS_HEADER *DosHdr = (IMAGE_DOS_HEADER *)hModule;
-  if (IMAGE_DOS_SIGNATURE == DosHdr->e_magic) {
-    DWORD dwReadAddr = hModule + DosHdr->e_lfanew;
-    IMAGE_NT_HEADERS *NtHdr = (IMAGE_NT_HEADERS *)dwReadAddr;
-    if (IMAGE_NT_SIGNATURE == NtHdr->Signature) {
-      DWORD dwExportAddr = NtHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
-      if (dwExportAddr == 0)
-        return;
-      dwExportAddr += hModule;
-      IMAGE_EXPORT_DIRECTORY *ExtDir = (IMAGE_EXPORT_DIRECTORY*)dwExportAddr;
-      dwExportAddr = hModule+ExtDir->AddressOfNames;
-      for (UINT uj = 0; uj < ExtDir->NumberOfNames; uj++) {
-        DWORD dwFuncName = *(DWORD *)dwExportAddr;
-        char *pcBuffer = (char *)(hModule + dwFuncName);
-        char *pcFuncPtr = (char *)(hModule + (DWORD)ExtDir->AddressOfNameOrdinals+(uj * sizeof(WORD)));
-        WORD word = *(WORD *)pcFuncPtr;
-        pcFuncPtr = (char *)(hModule + (DWORD)ExtDir->AddressOfFunctions+(word * sizeof(DWORD)));
-        info.addr = hModule + *(DWORD *)pcFuncPtr;
-        ::tree->Insert(pcBuffer, info);
-        dwExportAddr += sizeof(DWORD);
-      }
-    }
-  }
-}
-
-void AddAllModules()
-{
-  // jichi 9/26/2013: AVLTree is already zero
-  PPEB ppeb;
-  __asm {
-    mov eax, fs:[0x30]
-    mov ppeb, eax
-  }
-  DWORD temp = *(DWORD *)(&ppeb->Ldr->InLoadOrderModuleList);
-  PLDR_DATA_TABLE_ENTRY it = (PLDR_DATA_TABLE_ENTRY)temp;
-  while (it->SizeOfImage) {
-    AddModule((DWORD)it->DllBase, it->SizeOfImage, it->BaseDllName.Buffer);
-    it = (PLDR_DATA_TABLE_ENTRY)it->InLoadOrderModuleList.Flink;
-    if (*(DWORD *)it == temp)
-      break;
-  }
-}
 
 void RequestRefreshProfile()
 {
@@ -140,15 +93,6 @@ void RequestRefreshProfile()
 
 DWORD GetFunctionAddr(const char *name, DWORD *addr, DWORD *base, DWORD *size, LPWSTR *base_name)
 {
-  TreeNode<char *,FunctionInfo> *node = ::tree->Search(name);
-  if (node) {
-    if (addr) *addr = node->data.addr;
-    if (base) *base = node->data.module;
-    if (size) *size = node->data.size;
-    if (base_name) *base_name = node->data.name;
-    return TRUE;
-  }
-  else
     return FALSE;
 }
 
@@ -160,8 +104,8 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD fdwReason, LPVOID lpReserved)
   CC_UNUSED(lpReserved);
 
   //static WCHAR dll_exist[] = L"ITH_DLL_RUNNING";
-  static WCHAR dll_exist[] = ITH_CLIENT_MUTEX;
-  static HANDLE hDllExist;
+  //static WCHAR dll_exist[] = ITH_CLIENT_MUTEX;
+  //static HANDLE hDllExist;
 
   // jichi 9/23/2013: wine deficenciy on mapping sections
   // Whe set to false, do not map sections.
@@ -195,7 +139,6 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD fdwReason, LPVOID lpReserved)
       NtMapViewOfSection(hSection, NtCurrentProcess(),
           (LPVOID *)&::hookman, 0, hook_buff_len, 0, &hook_buff_len, ViewUnmap, 0,
           PAGE_EXECUTE_READWRITE);
-          //PAGE_EXECUTE_READWRITE);
 
       GetProcessName(::processName);
       FillRange(::processName, &::processStartAddress, &::processStopAddress);
@@ -215,17 +158,14 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD fdwReason, LPVOID lpReserved)
       {
         wchar_t dll_mutex[0x100];
         swprintf(dll_mutex, ITH_PROCESS_MUTEX_ L"%d", current_process_id);
-        DWORD exists;
         if ((::hMutex = CreateMutexW(nullptr, TRUE, dll_mutex)) == NULL || GetLastError() == ERROR_ALREADY_EXISTS)
           return FALSE;
       }
 
-      hDllExist = CreateMutexW(nullptr, FALSE, dll_exist);
+      //hDllExist = CreateMutexW(nullptr, FALSE, dll_exist);
       hDLL = hModule;
       ::running = true;
       ::current_available = ::hookman;
-      ::tree = new AVLTree<char, FunctionInfo, SCMP, SCPY, SLEN>;
-      AddAllModules();
       InitFilterTable();
 
       hSendThread = IthCreateRemoteThread(WaitForPipe, 0);
@@ -271,10 +211,9 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD fdwReason, LPVOID lpReserved)
       CloseHandle(hSection);
       CloseHandle(hMutex);
 
-      delete ::tree;
       IthCloseSystemService();
       CloseHandle(hmMutex);
-      CloseHandle(hDllExist);
+      //CloseHandle(hDllExist);
       //} ITH_EXCEPT {}
     } break;
   }

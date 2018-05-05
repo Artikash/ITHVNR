@@ -40,7 +40,6 @@ struct FunctionInfo {
 struct SCMP;
 struct SCPY;
 struct SLEN;
-extern AVLTree<char, FunctionInfo, SCMP, SCPY, SLEN> *tree;
 
 void InitFilterTable();
 
