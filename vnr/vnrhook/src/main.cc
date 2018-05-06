@@ -32,24 +32,6 @@
 DWORD processStartAddress,
       processStopAddress;
 
-namespace { // unnamed
-wchar_t processName[MAX_PATH];
-
-inline void GetProcessName(wchar_t *name)
-{
-  //assert(name);
-  PLDR_DATA_TABLE_ENTRY it;
-  __asm
-  {
-    mov eax,fs:[0x30]
-    mov eax,[eax+0xc]
-    mov eax,[eax+0xc]
-    mov it,eax
-  }
-  wcscpy(name, it->BaseDllName.Buffer);
-}
-} // unmaed namespace
-
 enum { HOOK_BUFFER_SIZE = MAX_HOOK * sizeof(TextHook) };
 //#define MAX_HOOK (HOOK_BUFFER_SIZE/sizeof(TextHook))
 DWORD hook_buff_len = HOOK_BUFFER_SIZE;
@@ -77,12 +59,20 @@ extern DWORD module_base;
 
 namespace { // unnamed
 
+	LPCWSTR GetProcessName()
+	{
+		wchar_t fullProcessName[MAX_PATH];
+		wchar_t* processName = fullProcessName + GetModuleFileNameW(nullptr, fullProcessName, MAX_PATH);
+		while (*(--processName) != L'\\');
+		return processName + 1;
+	}
+
 void RequestRefreshProfile()
 {
   if (::live) {
     BYTE buffer[0x80] = {}; // 11/14/2013: reset to zero. Shouldn't it be 0x8 instead of 0x80?
-    *(DWORD *)buffer = -1;
-    *(DWORD *)(buffer + 4) = 1;
+    *(DWORD *)buffer = HOST_NOTIFICATION;
+    *(DWORD *)(buffer + 4) = HOST_NOTIFICATION_NEWHOOK;
     *(DWORD *)(buffer + 8) = 0;
     IO_STATUS_BLOCK ios;
     NtWriteFile(hPipe, 0, 0, 0, &ios, buffer, HEADER_SIZE, 0, 0);
@@ -140,8 +130,7 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD fdwReason, LPVOID lpReserved)
           (LPVOID *)&::hookman, 0, hook_buff_len, 0, &hook_buff_len, ViewUnmap, 0,
           PAGE_EXECUTE_READWRITE);
 
-      GetProcessName(::processName);
-      FillRange(::processName, &::processStartAddress, &::processStopAddress);
+      FillRange(::GetProcessName(), &::processStartAddress, &::processStopAddress);
       //NtInspect::getProcessMemoryRange(&::processStartAddress, &::processStopAddress);
 
       //if (!::hookman) {

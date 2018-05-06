@@ -37,7 +37,30 @@ DWORD module_base;
 
 HANDLE hPipe, //pipe
        hCommand, //pipe
+		pipeExist, // event
        hDetach; //mutex
+
+
+DWORD WINAPI TextPipe(LPVOID unused)
+{
+	if (pipeExist = OpenEventW(EVENT_ALL_ACCESS, FALSE, ITH_PIPEEXISTS_EVENT))
+	{
+		while (::running)
+		{
+			hPipe = hCommand = INVALID_HANDLE_VALUE;
+			if (WaitForSingleObject(pipeExist, MAXDWORD) == WAIT_TIMEOUT) break;
+			while (hPipe == INVALID_HANDLE_VALUE || hCommand == INVALID_HANDLE_VALUE)
+			{
+				Sleep(100);
+				if (hPipe == INVALID_HANDLE_VALUE)
+					hPipe = IthOpenPipe(recv_pipe, GENERIC_WRITE);
+				if (hCommand == INVALID_HANDLE_VALUE)
+					hCommand = IthOpenPipe(command, GENERIC_READ);
+			}
+			WriteFile(hPipe, &current_process_id, sizeof(current_process_id), nullptr, nullptr)
+		}
+	}
+}
 
 DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH main module status.
 {
@@ -56,8 +79,8 @@ DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH mai
         goto _release;
     HANDLE hMutex = CreateMutexW(nullptr, FALSE, ITH_GRANTPIPE_MUTEX);
     NtWaitForSingleObject(hMutex, 0, 0);
-    while (::hPipe == INVALID_HANDLE_VALUE||
-      hCommand == INVALID_HANDLE_VALUE) {
+    while (::hPipe == INVALID_HANDLE_VALUE|| hCommand == INVALID_HANDLE_VALUE) 
+	{
       NtDelayExecution(0, &sleep_time);
       if (::hPipe == INVALID_HANDLE_VALUE)
         ::hPipe = IthOpenPipe(recv_pipe, GENERIC_WRITE);
@@ -67,6 +90,7 @@ DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH mai
     //NtClearEvent(hLose);
     NtWriteFile(::hPipe, 0, 0, 0, &ios, &current_process_id, sizeof(current_process_id), 0, 0);
 	ConsoleOutput("Writing process id");
+	GROWL_MSG(L"Writing process id");
     for (int i = 0, count = 0; count < ::current_hook; i++)
       if (hookman[i].RecoverHook()) // jichi 9/27/2013: This is the place where built-in hooks like TextOutA are inserted
         count++;
@@ -93,9 +117,10 @@ DWORD WINAPI WaitForPipe(LPVOID lpThreadParameter) // Dynamically detect ITH mai
     if (!::running) {
       //CliLockPipe();
       //NtWriteFile(::hPipe, 0, 0, 0, &ios, man, 4, 0, 0);
-		GROWL_MSG(L"Write hookman");
-      NtWriteFile(::hPipe, 0, 0, 0, &ios, hookman, 4, 0, 0);
+	  //GROWL_MSG(L"Write hookman");
+      //NtWriteFile(::hPipe, 0, 0, 0, &ios, hookman, 4, 0, 0);
       //CliUnlockPipe();
+		//Is writing the address of hookman needed?
       ReleaseMutex(::hDetach);
     }
     CloseHandle(::hDetach);
@@ -126,8 +151,10 @@ DWORD WINAPI CommandPipe(LPVOID lpThreadParameter)
       switch (NtReadFile(hCommand, 0, 0, 0, &ios, buff, 0x200, 0, 0)) {
       case STATUS_PIPE_BROKEN:
       case STATUS_PIPE_DISCONNECTED:
+		  //GROWL_MSG(L"Pipe broken or disconnected");
         ResetEvent(hPipeExist);
-        continue;
+		//goto _detach;
+		continue;
       }
       if (ios.uInformation && ::live) {
         command = *(DWORD *)buff;
@@ -154,14 +181,14 @@ DWORD WINAPI CommandPipe(LPVOID lpThreadParameter)
             CloseHandle(hRemoved);
           } break;
         case HOST_COMMAND_DETACH:
-          ::running = false;
-          ::live = false;
           goto _detach;
         }
       }
     }
 _detach:
   GROWL_MSG(L"Detaching");
+  ::running = false;
+  ::live = false;
   CloseHandle(hPipeExist);
   CloseHandle(hCommand);
   Util::unloadCurrentModule(); // jichi: this is not always needed

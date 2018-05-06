@@ -147,7 +147,8 @@ DWORD WINAPI RecvThread(LPVOID lpThreadParameter)
 		0, 0,
 		&ios,
 		CTL_CODE(FILE_DEVICE_NAMED_PIPE, NAMED_PIPE_DISCONNECT, 0, 0),
-		0, 0, 0, 0))
+		0, 0, 0, 0)
+	)
 		NtWaitForSingleObject(hDisconnect, 0, 0);
 
 	CloseHandle(hDisconnect);
